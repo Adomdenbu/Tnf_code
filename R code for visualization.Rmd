@@ -1,0 +1,4170 @@
+#Load packages
+```{r eval=FALSE, include=FALSE}
+suppressPackageStartupMessages({
+	library(tidyverse)
+	library(clusterProfiler)
+	library(qs)
+	library(Seurat)
+	library(ggplot2)
+	library(ggrepel)  # 避免标签重叠
+	library(clustree)
+	library(cowplot)
+	library(dplyr)
+	library(data.table)
+	library(monocle)
+	library(export)
+	library(patchwork)
+	library(dplyr)
+	library(ggunchull)
+	library(tidydr)
+	library(ggsci)
+	library(Cairo)
+	library(FlowSOM)
+	library(flowAI)
+	library(flowCore)
+	})
+set.seed(5211314)
+```
+
+#top marker merged ComplexHeatmap
+
+```{r eval=FALSE, include=FALSE}
+library(ComplexHeatmap)
+
+##获得基因和细胞聚类信息
+cells.cut@active.ident=cells.cut$assign_cluster
+cells.cut <- JoinLayers(object = cells.cut)
+pbmc.markers <- FindAllMarkers(cells.cut,test.use = "wilcox",
+							   only.pos = F,min.pct = 0,logfc.threshold = 0,
+							   return.thresh = 1)
+
+pbmc.markers_fillter <- FindAllMarkers(cells.cut,only.pos = T,
+									   min.pct = 0.1,logfc.threshold = 0.25)
+
+
+if(T){
+	top30 <- pbmc.markers%>%
+		filter(pct.1>=0.1)%>%
+	group_by(cluster)%>%
+	top_n(n=30,wt=avg_log2FC)%>% 
+	arrange(cluster,p_val,desc(avg_log2FC))
+
+##提取标准化表达矩阵
+mat=as.data.frame(GetAssayData(cells.cut,layer = 'scale.data'))%>%
+	rownames_to_column(var = "rowname")%>%
+  filter(rowname %in% pbmc.markers$gene)%>%
+	column_to_rownames(var = "rowname")
+
+tfh_cluster_markers=pbmc.markers%>%
+	filter(gene %in% row.names(mat))
+
+gene_anno=read.csv(file = "input/Gene_classification/gene_anno_all.csv")
+
+# 合并数据
+tfh_cluster_markers_classification <- pbmc.markers  %>%
+  left_join(gene_anno, by = c("gene" = "Gene_name"))  %>%
+  mutate(Expression_Top_3000 = ifelse(gene %in% rownames(mat), T, F))%>%
+  select(gene,Gene_id,Expression_Top_3000, everything())
+
+write.csv(tfh_cluster_markers_classification,file="output/sgNTC/0005_merged_DEG.csv",
+		  na = "",row.names = F)
+}
+
+top30 <- pbmc.markers%>%
+		filter(pct.1>=0.1)%>%
+	group_by(cluster)%>%
+	top_n(n=30,wt=avg_log2FC)%>% 
+	arrange(cluster,p_val,desc(avg_log2FC))%>% 
+	# 使用 distinct 保留唯一的 Gene_name
+	distinct(gene, .keep_all = TRUE)
+
+##提取标准化表达矩阵
+mat=as.data.frame(GetAssayData(cells.cut,layer = 'scale.data'))%>%
+	rownames_to_column(var = "rowname")%>%
+  filter(rowname %in% top30$gene)%>%
+	column_to_rownames(var = "rowname")
+dim(mat);mat[1:10,1:10]
+
+mat_scale=mat
+
+if(T){
+cluster_info <- sort(cells.cut$assign_cluster)
+row_indices <- match(top30$gene, rownames(mat_scale))%>%
+	na.omit()
+col_indices <- intersect(names(cluster_info), colnames(mat_scale))
+mat_scale <- as.data.frame(mat_scale[row_indices, col_indices])
+
+##设置列标签的颜色，最好和umap/tsne细胞群的颜色一一对应 
+col <- c('plum','coral1','bisque','gold2',
+		 'hotpink3','lightsalmon3','rosybrown2','lightcyan2',
+		 'thistle3',"#0F4C3A","#563F2E",
+		 "#78C2C4","#C73E3A","#B47157","#2B5F75")
+names(col) <- levels(cluster_info)
+top_anno <- HeatmapAnnotation(cluster=anno_block(gp=gpar(fill=col),
+                                                 labels = levels(cluster_info),
+                                                 labels_gp = gpar(cex=2,col='black')))
+##给热图改个好看的颜色
+library(circlize)
+col_fun = colorRamp2(c(-2, 0, 2), c("#377EB8", "white", "#E41A1C"))
+min(mat_scale);max(mat_scale)
+p=Heatmap(mat_scale,
+        cluster_rows = FALSE,
+        cluster_columns = FALSE,
+        show_column_names = FALSE,
+        show_row_names = TRUE,
+		  use_raster=TRUE,
+        column_split = cluster_info,
+        top_annotation = top_anno, #在热图边上增加注释
+        column_title = NULL,
+        heatmap_legend_param = list(
+        	at = c(-2, 0, 2),
+          title='z-score',
+          title_position='leftcenter-rot',
+                title_gp = gpar(col = "black", fontsize = 16),  # 修改图例标题字体大小
+                labels_gp = gpar(col = "black", fontsize = 14)   # 修改图例标签字体大小
+          ),
+        col = col_fun)
+pdf("output/sgNTC/0005_top30_merged_heatmap.pdf", width = 8, height = 18,compress=TRUE)
+print(p)
+dev.off()
+}
+
+if(T){
+cluster_info <- sort(cells.cut$assign_cluster)
+row_indices <- match(top30$gene, rownames(mat_scale))%>%
+	na.omit()
+col_indices <- intersect(names(cluster_info), colnames(mat_scale))
+mat_scale <- as.data.frame(mat_scale[row_indices, col_indices])
+
+##输入想在图上展示出来的marker基因，获得基因在热图中的位置信息 
+gene <- c('Tox','Tbc1d4','Slc41a1','Btla',"Ppp2r3a",
+		  "Fosb","Fos","Jun","Egr1","Zfp36",
+		  "Rpl28","Rpl10","Rgs10","Ccr7","Gstp3",
+		  "Gzmb","Ccl3","Cxcr6","Ccr2","Ccl5",
+		  "Pik3r5","Havcr2","Prdm1","Pik3ap1","Dock5")
+gene_pos <- which(rownames(mat_scale)%in%gene)
+row_anno <- rowAnnotation(gene=anno_mark(at=gene_pos,
+										 labels = gene))
+
+
+##设置列标签的颜色，最好和umap/tsne细胞群的颜色一一对应 
+col <- c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")
+names(col) <- levels(cluster_info)
+top_anno <- HeatmapAnnotation(cluster=anno_block(gp=gpar(fill=col),
+                                                 labels = levels(cluster_info),
+                                                 labels_gp = gpar(cex=2,col='black')))
+##给热图改个好看的颜色
+library(circlize)
+library(gplots)  # 确保已经安装并加载了gplots包
+col_fun = colorRamp2(c(-2, 0, 3), c("#113285", "white", "#D0104C"))
+min(mat_scale);max(mat_scale)
+
+p=Heatmap(mat_scale,
+        cluster_rows = FALSE,
+        cluster_columns = FALSE,
+        show_column_names = FALSE,
+        show_row_names = FALSE,
+		  use_raster=TRUE,
+        column_split = cluster_info,
+        top_annotation = top_anno, #在热图边上增加注释
+		  right_annotation = row_anno,
+          column_title = NULL,
+        heatmap_legend_param = list(
+        	at = c(-2, 0, 2),
+          title='z-score',
+          title_position='leftcenter-rot',
+                title_gp = gpar(col = "black", fontsize = 16),  # 修改图例标题字体大小
+                labels_gp = gpar(col = "black", fontsize = 14)   # 修改图例标签字体大小
+          ),
+        col = col_fun)
+pdf("output/sgNTC/0005_top30_merged_heatmap_select_anno.pdf", width = 8, height = 6,compress=TRUE)
+print(p)
+dev.off()
+}
+save(pbmc.markers,tfh_cluster_markers,tfh_cluster_markers_classification,
+	 top30,
+	 file = 'object/sgNTC/top30marker_merged_clusters.Rdata')
+
+load(file = 'object/sgNTC/top30marker_merged_clusters.Rdata')
+```
+
+#UMAP plot
+
+```{r eval=FALSE}
+cells.cut@active.ident=as.factor(cells.cut$assign_cluster)
+color=c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")
+
+if(T){
+p3 <- DimPlot(cells.cut, reduction = "umap", 
+              group.by = "assign_cluster", pt.size=0.5,
+              cols = color,label = TRUE,
+              label.size = 5,label.color = "black",
+              label.box = FALSE,raster=FALSE)+
+	theme(axis.line = element_blank(),
+		  axis.ticks = element_blank(),
+		  axis.text = element_blank(),
+		  panel.grid = element_blank(),
+		  legend.position = "none")+
+	xlab(NULL)+ylab(NULL)+	
+	labs(title=NULL)
+
+pdf(file = "output/sgNTC/0006_merged_UMAP.pdf",width = 5, height=4,compress = TRUE)
+print(p3)
+dev.off()
+}
+
+if(T){
+p3 <- DimPlot(cells.cut, reduction = "umap", 
+              group.by = "assign_cluster", pt.size=0.5,
+              cols = color,label = FALSE,
+              label.size = 5,label.color = "black",
+              label.box = FALSE,raster=FALSE)+
+	theme(axis.line = element_blank(),
+		  axis.ticks = element_blank(),
+		  axis.text = element_blank(),
+		  panel.grid = element_blank(),
+		  legend.position = "top")+
+	xlab(NULL)+ylab(NULL)+	
+	labs(title=NULL)
+
+pdf(file = "output/sgNTC/0006_merged_UMAP_1.pdf",width = 5, height=4,compress = TRUE)
+print(p3)
+dev.off()
+}
+
+if(T){
+table(cells.cut$orig.ident)
+p3 <- DimPlot(cells.cut, reduction = "umap", 
+              group.by = "orig.ident", pt.size=0.1,
+              cols = color,label = FALSE,
+              label.size = 5,label.color = "black",
+              label.box = FALSE,raster=FALSE)+
+	theme(axis.line = element_blank(),
+		  axis.ticks = element_blank(),
+		  axis.text = element_blank(),
+		  panel.grid = element_blank(),
+		  legend.position = "none")+
+	xlab(NULL)+ylab(NULL)+	
+	labs(title=NULL)+
+  facet_wrap(~ orig.ident, ncol = 1)
+
+pdf(file = "output/sgNTC/0008_merged_UMAP_origident.pdf",width = 3, height=6,compress = TRUE)
+print(p3)
+dev.off()
+}
+```
+
+#change featureCornerAxes function
+
+```{r eval=FALSE, include=FALSE}
+featureCornerAxes1=function (object = NULL, reduction = "umap", features = NULL, 
+	groupFacet = "orig.ident", minExp = NULL, maxExp = NULL, 
+	relLength = 0.25, relDist = 0.1, aspect.ratio = NULL, low = "lightgrey", 
+	high = "red", axes = "mul", show.legend = TRUE, legendPos = "right", 
+	stripCol = "white", cornerVariable = NULL, nLayout = NULL, 
+	pSize = 1, arrowType = "closed", lineTextcol = "black", 
+	cornerTextSize = 3, base_size = 14, themebg = "default") 
+{
+	reduc <- data.frame(Seurat::Embeddings(object, reduction = reduction))
+	meta <- object@meta.data
+	pc12 <- cbind(reduc, meta)
+	geneExp <- Seurat::FetchData(object = object, vars = features)
+	mer <- cbind(pc12, geneExp)
+	megredf <- reshape2::melt(mer, id.vars = colnames(pc12), 
+		variable.name = "gene_name", value.name = "scaledValue")
+	range <- floor(min(min(pc12[, 1]), min(pc12[, 2])))
+	lower <- range - relDist * abs(range)
+	labelRel <- relDist * abs(lower)
+	linelen <- abs(relLength * lower) + lower
+	mid <- abs(relLength * lower)/2 + lower
+	if (startsWith(reduction, "umap")) {
+		axs_label <- paste("UMAP", 2:1, sep = "")
+	}
+	else if (startsWith(reduction, "tsne")) {
+		axs_label <- paste("t-SNE", 2:1, sep = "")
+	}
+	else {
+		print("Please give correct type(umap or tsne)!")
+	}
+	if (axes == "mul") {
+		axes <- data.frame(x1 = c(lower, lower, lower, linelen), 
+			y1 = c(lower, linelen, lower, lower), linegrou = c(1, 
+				1, 2, 2))
+		label <- data.frame(lab = c(axs_label), angle = c(90, 
+			0), x1 = c(lower - labelRel, mid), y1 = c(mid, lower - 
+			labelRel))
+	}
+	else if (axes == "one") {
+		if (is.null(cornerVariable)) {
+			lev <- levels(pc12[, groupFacet])
+			if (!is.null(lev)) {
+				firstFacet <- factor(lev[1], levels = lev)
+			}
+			else {
+				firstFacet <- unique(pc12[, groupFacet])[1]
+			}
+		}
+		else {
+			lev <- levels(pc12[, groupFacet])
+			if (!is.null(lev)) {
+				firstFacet <- factor(cornerVariable, levels = lev)
+			}
+			else {
+				firstFacet <- cornerVariable
+			}
+		}
+		axes <- data.frame(x1 = c(lower, lower, lower, linelen), 
+			y1 = c(lower, linelen, lower, lower), linegrou = c(1, 
+				1, 2, 2), group = rep(firstFacet, 2))
+		label <- data.frame(lab = c(axs_label), angle = c(90, 
+			0), x1 = c(lower - labelRel, mid), y1 = c(mid, lower - 
+			labelRel), group = rep(firstFacet, 2))
+		colnames(axes)[4] <- groupFacet
+		colnames(label)[5] <- groupFacet
+	}
+	else {
+		print("Please give correct args(mul or one)!")
+	}
+	if (is.null(minExp) && is.null(maxExp)) {
+		minexp <- 0
+		maxexp <- round(max(megredf$scaledValue) + 1, digits = 0)
+	}
+	else {
+		minexp <- minExp
+		maxexp <- maxExp
+	}
+	pmain <- ggplot2::ggplot(megredf, ggplot2::aes(x = megredf[, 
+		1], y = megredf[, 2])) + ggplot2::geom_point(ggplot2::aes(color = scaledValue), 
+		size = pSize, show.legend = show.legend) + ggplot2::theme_classic(base_size = base_size) + 
+		ggplot2::scale_color_gradient(name = "", low = low, 
+			high = high, limits = c(minexp, maxexp), na.value = high) + 
+		ggplot2::labs(x = "", y = "") + 
+		ggplot2::theme(strip.background = ggplot2::element_rect(colour = NA, 
+			fill = stripCol), strip.text = ggplot2::element_text(size = base_size), 
+			strip.text.y = ggplot2::element_text(angle = 0), 
+			aspect.ratio = aspect.ratio, legend.position = legendPos, 
+			plot.title = ggplot2::element_text(hjust = 0.5), 
+			axis.line = ggplot2::element_blank(), axis.ticks = ggplot2::element_blank(), 
+			axis.text = ggplot2::element_blank())
+	if (is.null(nLayout)) {
+		nLayout <- length(features)
+	}
+	else {
+		nLayout <- nLayout
+	}
+	if (is.null(groupFacet)) {
+		p1 <- pmain + ggplot2::facet_wrap(facets = "gene_name", 
+			ncol = nLayout)
+	}
+	else {
+		p1 <- pmain + ggplot2::facet_grid(facets = c("gene_name", 
+			groupFacet))
+	}
+	if (themebg == "bwCorner") {
+		p2 <- p1 + ggplot2::theme_bw(base_size = base_size) + 
+			ggplot2::theme(panel.grid = ggplot2::element_blank(), 
+				axis.text = ggplot2::element_blank(), axis.ticks = ggplot2::element_blank(), 
+				aspect.ratio = 1, strip.background = ggplot2::element_rect(colour = NA, 
+					fill = stripCol))
+	}
+	else if (themebg == "default") {
+		p2 <- p1
+	}
+	return(p2)
+}
+
+```
+
+#Tfh related gene expression plot
+
+```{r eval=FALSE, include=FALSE}
+library(scRNAtoolVis)
+
+features=c("Bcl6","Cxcr5","Cxcr4","Cxcr3",
+		   "Pdcd1","Ccr7","Prdm1","Icos",
+		   "Il21","Il2ra","IL4","Il6ra",
+		   "Ly6c","Sh2d1a","Tcf7",  #T-bet, TCF-1
+		   "Slamf1","Slamf2","Slamf3","Slamf4",
+		   "Slamf5","Slamf6","Slamf7")
+pdf(file = "output/sgNTC/009_Featureplot_umap.pdf",width =18, height=9,
+	compress = TRUE)
+featureCornerAxes1(object = cells.cut,reduction = 'umap',
+                  groupFacet = NULL,
+                  relLength = 0.5,
+                  relDist = 0.2,
+				  pSize=0.1,
+                  features = features,
+				  nLayout=6,
+				  minExp=0,maxExp=3,
+                  aspect.ratio = 1)	+
+	theme(axis.line = element_blank(),
+		  axis.ticks = element_blank(),
+		  axis.text = element_blank(),
+		  panel.grid = element_blank())+
+	xlab(NULL)+ylab(NULL)
+dev.off()
+```
+
+#Grouping Dot plots
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+##提取标准化表达矩阵
+mat=as.data.frame(GetAssayData(cells.cut,layer = 'data'))%>%
+	rownames_to_column(var = "rowname")%>%
+	column_to_rownames(var = "rowname")
+dim(mat);mat[1:10,1:10]
+table(mat["Cd69",]>2.5)
+
+# Co-inhibitory
+# "Pdcd1","Havcr2","Lag3","Ctla4","Cd160","Btla",
+# Co-stimulatory
+# "Icos","Cd28","Cd226","Tnfrsf4","Tnfrsf14","Tnfrsf9",
+# Effector molecules
+# "Il2","Gzma","Gzmb","Gzmk","Ifng","Tnf","Prf1","Fasl",
+# Transcription factors
+# "Bcl6","Tcf7","Tox","Tox2","Egr1","Tbx21","Jun","Fosb",
+# "Fos","Junb","Id2","Id3","Prdm1","Lef1",
+# Surface receptors
+# "Cxcr5","Nt5e","Cd69","Icam1","Ccr7","Slamf6","Klrg1","Cxcr6","Cx3cr1","Izumo1r"
+
+features=c("Cxcr5","Nt5e","Cd69","Icam1","Ccr7","Slamf6","Klrg1","Cxcr6","Cx3cr1","Izumo1r",
+		   "Bcl6","Tcf7","Tox","Tox2","Egr1","Tbx21","Jun","Fosb",
+		   "Fos","Junb","Id2","Id3","Prdm1","Lef1",
+		   "Il2","Gzma","Gzmb","Gzmk","Ifng","Tnf","Prf1","Fasl",
+		   "Icos","Cd28","Cd226","Tnfrsf4","Tnfrsf14","Tnfrsf9",
+		   "Pdcd1","Havcr2","Lag3","Ctla4","Cd160","Btla")
+
+# 按基因分组归一化
+data <- DotPlot(cells.cut, features = features, 
+				group.by = "assign_cluster", scale = FALSE)$data %>%
+  group_by(features.plot) %>%
+  mutate(
+    avg.exp_scaled = avg.exp / max(avg.exp),
+    max_pct_exp = if (all(features.plot == first(features.plot))) max(pct.exp) else pct.exp,
+    id_all="all") %>% 
+	ungroup()
+
+if(T){
+if(T){
+max_num=1;size=16
+colors=c("lightgrey","#ef798a","#461220")
+# 使用归一化后的值重新绘图
+p <- ggplot(data, aes(x = id, y = features.plot)) +
+  geom_point(aes(size = pct.exp, color = avg.exp_scaled)) +
+	scale_color_gradientn(colors = colors,
+						  limits = c(NA,max_num), 
+						  values = scales::rescale(c(0, max_num)), 
+						  breaks = c(0,max_num),  
+						  labels = c("0", "max"),  # 自定义标签为"0"和"max"
+						  guide = guide_colorbar(title = "Avg. exp."),
+						  oob = scales::squish) +
+	scale_size_continuous(range = c(1, 6),
+						  limits = c(0, 100),
+						  breaks = c(0, 25, 50, 75, 100))+
+	labs(x=NULL,y=NULL,size = 'Pct. exp.')+
+		theme_classic()+
+	theme(axis.ticks=element_line(linewidth = 0.3),
+  	axis.text.x = element_text(angle = 0, 
+                                   face = 1, size = size, 
+                                   hjust = 0.5, vjust = 0.5, 
+                                   color = "black"), 
+        axis.text.y = element_text(size = size, face = "italic",
+        						   color = "black", family = "sans"),
+  	  panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8),
+        legend.text = element_text(size = size, face = 1), 
+        legend.title = element_text(size = size, face = 1),
+  	  legend.key.size= unit(size, 'pt'),
+        legend.position = 'right' , 
+        strip.placement = "outside", 
+        strip.text.x = element_text(size = size, face="bold"),
+        axis.title = element_blank())
+pdf("output/sgNTC/0009_1_Grouping_Dotplots.pdf", w= 3.8, h = 14)
+print(p) 
+dev.off()
+}
+
+names(data)
+if(T){
+	max_num=100
+colors=c("lightgrey","#5f0a87","#3083dc","#379956","#fbec04","#b23a48","#95190c")
+# 使用归一化后的值重新绘图
+p <- ggplot(data, aes(x = id_all, y = features.plot)) +
+  geom_point(aes(size = max_pct_exp, color = max_pct_exp)) +
+	scale_color_gradientn(colors = colors,
+						  limits = c(NA,max_num), 
+						  values = scales::rescale(c(0, max_num)), 
+						  breaks = c(0,max_num),  
+						  labels = c("0", "max"),  # 自定义标签为"0"和"max"
+						  guide = guide_colorbar(title = "Max exp."),
+						  oob = scales::squish) +
+	scale_size_continuous(range = c(1, 6),
+						  limits = c(0, 100),
+						  breaks = c(0, 25, 50, 75, 100))+
+	labs(x=NULL,y=NULL,size = 'Pct. exp.')+
+		theme_classic()+
+	theme(axis.ticks=element_line(linewidth = 0.3),
+		  axis.text.x = element_text(angle = 0, 
+                                   face = 1, size = size, 
+                                   hjust = 0.5, vjust = 0.5, 
+                                   color = "black"), 
+		  axis.text.y = element_blank(), #剔除gene名
+		  axis.ticks.y = element_blank(),
+        #axis.text.y = element_text(size = size, face = 1,color = "black"),
+  	  panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8),
+        legend.text = element_text(size = size, face = 1), 
+        legend.title = element_text(size = size, face = 1),
+  	  legend.key.size= unit(size, 'pt'),
+        legend.position = 'right' , 
+        strip.placement = "outside", 
+        strip.text.x = element_text(size = size, face="bold"),
+        axis.title = element_blank())
+pdf("output/sgNTC/0009_1_Grouping_Dotplots_2.pdf", w= 1.7, h = 14)
+print(p) 
+dev.off()
+}
+}
+
+qsavem(data,features,
+	  file="object/sgNTC/0009_1_Grouping_Dotplots.qs")
+
+qload("object/sgNTC/0009_1_Grouping_Dotplots.qs")
+```
+
+#monocle3 dimensionality reduction and visualization
+
+```{r eval=FALSE}
+if(F){
+BiocManager::install(c('BiocGenerics', 'DelayedArray', 'DelayedMatrixStats',
+                       'limma', 'lme4', 'S4Vectors', 'SingleCellExperiment',
+                       'SummarizedExperiment', 'batchelor', 'HDF5Array',
+                       'terra', 'ggrastr'), force = TRUE, type="binary")
+install.packages("namespace", type="binary")
+BiocManager::install("GenomeInfoDbData",force = TRUE)
+remove.packages("Matrix.utils")
+install.packages("https://cran.r-project.org/src/contrib/Archive/Matrix.utils/Matrix.utils_0.9.8.tar.gz", type = "source", repos = NULL)
+Sys.setenv(R_REMOTES_NO_ERRORS_FROM_WARNINGS="true")
+install.packages("E:/000 下载/reactome.db_1.88.0.tar.gz",repos = NULL,type = "source")
+install.packages("E:/000 下载/monocle3-1.3.1.tar.gz",repos = NULL,type = "source")
+BiocManager::install(c('assertthat', 'grr', 'HDF5Array', 
+					   'leidenbase', 'pbmcapply', 'proxy', 
+					   'pscl', 'rsample', 'RhpcBLASctl', 
+					   'slam', 'spdep', 'speedglm', 
+					   'viridis'), force = TRUE, type="binary")
+devtools::install_github('cole-trapnell-lab/monocle3', type="binary")
+devtools::install_github('cole-trapnell-lab/monocle3', ref="develop")
+}
+#devtools::install_github('cole-trapnell-lab/leidenbase')
+#devtools::install_github('cole-trapnell-lab/monocle3')
+library(leidenbase)
+library(monocle3)
+
+expression_matrix = cells.cut@assays$RNA$data
+cell_metadata = data.frame(cells.cut@meta.data)
+gene_annotation = data.frame(expression_matrix[,1])
+gene_annotation[,1] = row.names(gene_annotation)
+colnames(gene_annotation)=c("gene_short_name")
+##构建Monocle3 cds对象
+cds <- new_cell_data_set(expression_matrix,
+                         cell_metadata = cell_metadata,
+                         gene_metadata = gene_annotation)
+
+#预处理，相当于Seurat流程normalize过程
+#counts数据选择norm_method = c("log")
+#data数据选择norm_method = c("none")
+cds <- preprocess_cds(cds, num_dim = 50,norm_method = c("none"))
+
+## 降维，默认是"Umap"方式
+cds <- reduce_dimension(cds,
+						reduction_method = c("UMAP"),
+						umap.fast_sgd = FALSE,
+						cores = 1)
+
+if(T){
+##使用Seurat的UMAP信息，这样可以与Seurat对象的细胞分布保持一致
+cds.embed <- cds@int_colData$reducedDims$UMAP
+int.embed <- Embeddings(cells.cut, reduction = "umap")[,1:2]
+int.embed <- int.embed[rownames(cds.embed),]
+cds@int_colData$reducedDims$UMAP <- int.embed
+}
+
+cds <- cluster_cells(cds)
+## pseudotime
+cds <- learn_graph(cds)
+
+plot_cells(cds,
+           color_cells_by = "assign_cluster",
+           label_cell_groups=FALSE,
+           label_leaves=TRUE,
+           label_branch_points=TRUE,
+		   cell_size = 1,
+           graph_label_size=3)
+
+#specify the root node of the trajectory graph
+	if(T){
+cds <- order_cells(cds)
+
+plot_cells(cds,
+           color_cells_by = "pseudotime",
+           label_cell_groups=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=FALSE,
+		   cell_size = 1,
+           graph_label_size=1.5)
+	}
+
+	if(T){
+cds2 <- order_cells(cds)
+
+plot_cells(cds2,
+           color_cells_by = "pseudotime",
+           label_cell_groups=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=FALSE,
+		   cell_size = 1,
+           graph_label_size=1.5)
+	}
+
+library(ggsci)
+
+if(T){
+##不同细胞类型拟时序数值
+##拟时序值越高表示细胞分化程度越高
+p1=plot_cells(cds, color_cells_by = "pseudotime",
+           label_cell_groups=FALSE,
+			  label_roots = TRUE,
+           label_leaves=FALSE,
+			  show_trajectory_graph = TRUE,
+			  trajectory_graph_color = "black",
+           label_branch_points=FALSE,
+			  trajectory_graph_segment_size = 1.8,
+			  cell_size = 0.6,
+           graph_label_size=6) +
+  	theme( panel.border =element_blank(),
+  		   line=element_blank(),
+  		  text=element_text(face = "bold", color = "black",size = 10),
+        	  axis.text.x = element_blank(), 
+        	  axis.title.x = element_blank(),
+        	  axis.title.y = element_blank(),
+        	  axis.text.y =element_blank(),
+  		  axis.ticks= element_blank(),
+        	  axis.line = element_blank(), 
+  		  panel.grid = element_blank(),
+  		  plot.margin = margin(0, 0, 0, 0),
+  		  panel.background = element_blank()) +
+  scale_x_continuous(expand = c(0, 0), breaks = NULL) +
+  scale_y_continuous(expand = c(0, 0), breaks = NULL) +
+	labs(x= NULL,y = NULL,title=NULL)+
+	xlab(NULL)+ylab(NULL)
+p1
+
+pdf(file = "output/sgNTC/010_Monocle3_umap_c1_root.pdf",width = 6, height=4)
+print(p1)
+dev.off()
+}
+
+if(T){
+p1=plot_cells(cds2, color_cells_by = "pseudotime",
+           label_cell_groups=FALSE,
+			  label_roots = TRUE,
+           label_leaves=FALSE,
+			  show_trajectory_graph = FALSE,
+			  trajectory_graph_color = "black",
+           label_branch_points=FALSE,
+			  trajectory_graph_segment_size = 0.8,
+			  cell_size = 0.6,
+           graph_label_size=3) +
+  	theme( panel.border =element_blank(),
+  		   line=element_blank(),
+  		  text=element_text(face = "bold", color = "black",size = 10),
+        	  axis.text.x = element_blank(), 
+        	  axis.title.x = element_blank(),
+        	  axis.title.y = element_blank(),
+        	  axis.text.y =element_blank(),
+  		  axis.ticks= element_blank(),
+        	  axis.line = element_blank(),
+  		  plot.margin = margin(0, 0, 0, 0),
+  		  panel.background = element_blank()) +
+	 scale_x_continuous(expand = c(0, 0), breaks = NULL) +
+  scale_y_continuous(expand = c(0, 0), breaks = NULL) +
+	labs(x= NULL,y = NULL,title=NULL)+
+	xlab(NULL)+ylab(NULL)
+p1
+
+pdf(file = "output/sgNTC/010_Monocle3_umap_c3_root.pdf",width = 6, height=4)
+print(p1)
+dev.off()
+}
+```
+
+#以编程方式指定轨迹的根
+
+```{r echo=FALSE}
+##选择特定细胞作为起点，代码比交互式页面方便许多，且不会出现选中自己不想要的细胞
+####这里我们假定以B细胞为起点
+myselect <- function(cds,select.classify,my_select){
+  cell_ids <- which(colData(cds)[,select.classify] == my_select)
+  closest_vertex <-
+    cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+  closest_vertex <- as.matrix(closest_vertex[colnames(cds), ])
+  root_pr_nodes <-
+    igraph::V(principal_graph(cds)[["UMAP"]])$name[as.numeric(names
+    (which.max(table(closest_vertex[cell_ids,]))))]
+  root_pr_nodes}
+
+table(cds@colData$BClaster.celltype)
+cds <- order_cells(cds, root_pr_nodes=myselect(cds,select.classify = 'BClaster.celltype',my_select = "Naive B"))
+
+plot_cells(cds,
+           color_cells_by = "pseudotime",
+           label_cell_groups=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=FALSE,
+           graph_label_size=1.5)
+```
+
+#Monocle3:Extract gene expression and pseudotime data, plot line graph.
+```{r eval=FALSE, include=FALSE}
+# 从Monocle3对象中提取拟时序得分
+pseudotime_df <- data.frame(
+    cell = names(pseudotime(cds)),
+    pseudotime = pseudotime(cds)
+    )
+pseudotime_df$pseudotime[is.infinite(pseudotime_df$pseudotime)] <- 0  # 处理Inf值
+
+
+# 从CDS对象中提取目标基因表达矩阵
+features=c("Tox", "Tcf7", "Cxcr5", "Tbx21",
+									"Bcl6", "Pdcd1", "Tox2")
+gene_expr_df <- as.data.frame(t(as.matrix(exprs(cds)[features, ]))) %>%
+	tibble::rownames_to_column(var = "cell")
+
+merged_data <- pseudotime_df %>%
+    dplyr::left_join(gene_expr_df, by = "cell") %>%
+    dplyr::filter(pseudotime > 0)  # 过滤无效拟时序值
+
+library(ggplot2)
+
+if(F){
+#散点+折线图
+ggplot(merged_data, aes(x = pseudotime, y = Tox)) +
+    geom_point(size = 1, alpha = 0.5, color = "#3B4992") +  # 散点图观察数据分布
+    geom_smooth(method = "loess", se = FALSE, color = "#EE0000") +  # 添加平滑曲线
+    labs(x = "Pseudotime", y = "Gene Expression (CD14)") +
+    theme_classic()
+
+#折线图
+ggplot(merged_data, aes(x = pseudotime, y = Tox)) +
+    geom_smooth(method = "loess", se = FALSE, color = "#EE0000") +  # 添加平滑曲线
+    labs(x = "Pseudotime", y = "Gene Expression (CD14)") +
+    theme_classic()
+}
+
+dir.create("output/sgNTC/0010_Monocle3_smooth_line_chart")
+for(i in features){
+	#i=features[1]
+p1=merged_data%>%
+ggplot(.,aes(x=pseudotime,y= !!sym(i)))+
+  geom_smooth(method = "loess", se = FALSE, color = "#EE0000") +  # 添加平滑曲线
+    labs(x = "Pseudotime", y = paste0(i," exp.")) +
+  theme_classic()+
+	theme(axis.text.x = element_text(size = 8,color = "black"),
+  	  axis.text.y = element_text(size = 8, color = "black"),
+  	  axis.title.x = element_text(size = 8, color = "black"),
+  	  axis.title.y = element_text(size = 8, color = "black"),
+  	  title = element_text(size = 8, color = "black"),
+  	  legend.position = "none", # "none" REMOVE legend
+		  )
+#p1
+
+print(paste0("Now save gene plot of ",i))
+pdf(paste("output/sgNTC/0010_Monocle3_smooth_line_chart/0010_",gsub("/", "", i),"_Monocle3_smooth_line_chart.pdf", sep=""),width =2.5, height =1.5,compress=TRUE)
+print(p1)
+dev.off()
+
+graph2ppt(p1,paste("output/sgNTC/0010_Monocle3_smooth_line_chart/0010_",
+				   gsub("/", "", i),"_Monocle3_smooth_line_chart.pptx", sep=""),width =2.5, height =1.5)
+}
+
+if(F){
+#多基因联合展示
+merged_data_long <- merged_data %>%
+    tidyr::pivot_longer(cols = c(Tox, Tcf7), names_to = "gene", values_to = "expression")
+
+ggplot(merged_data_long, aes(x = pseudotime, y = expression, color = gene)) +
+    geom_smooth(method = "loess", se = FALSE) +
+    scale_color_manual(values = c("#1F77B4", "#FF7F0E")) +
+    labs(x = "Pseudotime", y = "Gene Expression") +
+    theme_bw()
+}
+
+qsavem(cds,
+	   pseudotime_df,
+	   features,
+	   gene_expr_df,
+	   merged_data,
+	  file="object/sgNTC/0010_Monocle3_smooth_line_chart.qs")
+
+qload("object/sgNTC/0010_Monocle3_smooth_line_chart.qs")
+```
+
+
+#保存数据
+
+```{r echo=FALSE}
+save(cds,cds2,
+	 file = 'object/sgNTC/monocle3.Rdata')
+
+rm(list =ls())
+load(file = 'object/sgNTC/monocle3.Rdata')
+```
+
+#seurat switch python for CytoTRACE
+```{r eval=FALSE, include=FALSE}
+#devtools::install_github('JiekaiLab/dior')
+library(SingleCellExperiment)
+library(dior)
+
+
+rm(list =ls());gc()
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+
+cellscut_SE=as.SingleCellExperiment(cells.cut)
+dior::write_h5(cellscut_SE,file="object/sgNTC/CytoTRACE_cellscut_LCMV_Tfh.h5",
+			   object.type = "singlecellexperiment")
+```
+
+#Cytokine gene ComplexHeatmap
+
+```{r echo=FALSE}
+suppressPackageStartupMessages({
+library(AnnoProbe)
+library(ComplexHeatmap)
+library(circlize)
+})
+
+load(file = 'object/sgNTC/top30marker_merged_clusters.Rdata')
+
+gene_screen=c("Il2","Il2ra","Il2rb","Il2rg","Il4","Il4ra","Il5","Il5ra",
+	   "Il6","Il6ra","Il6st","Il7","Il7r","Il10","Il10ra","Il10rb",
+	   "Il13","Il13ra1","Il13ra2","Il17a","Il17ra","Il21r","Il21",
+	   "Il23a","Il23r","Il27","Il27ra","Ifng","Ifngr1","Ifngr2",
+	   "Tnf","Tnfrsf1a","Tnfrsf1b",
+	   "Tcf7","Bcl6","Tbx21","Cxcr5","Prdm1","Cxcr6","Gata3",
+	   "Pdcd1","Icos","Gzmb","Gzma","Icam1")
+
+
+gene_cell_exp <- AverageExpression(cells.cut,
+                                   features = gene_screen,
+                                   group.by = 'assign_cluster',
+                                   slot = 'data')
+gene_cell_exp_df=as.data.frame(gene_cell_exp$RNA)%>%
+	filter(rowSums(select(., where(is.numeric))) > 0)
+
+df_scaled <- as.data.frame(t(scale(t(as.data.frame(gene_cell_exp$RNA)%>%
+	filter(rowSums(select(., where(is.numeric))) > 0)))))
+
+
+#计算获得数据的大小范围；
+range(df_scaled)
+
+#然后，根据数据范围建立自定义颜色映射关系；
+col_fun = colorRamp2(c(min(df_scaled),0,max(df_scaled)),
+					 c("#2d3460", "#fff6f4", "#95190c" ))
+
+
+colnames(df_scaled)
+
+#依据分组顺序断开
+split = c(1,2,3,4,5)
+
+names(pbmc.markers)
+pmt=pbmc.markers%>%
+	filter(gene %in% gene_screen)%>%
+	select(p_val,cluster,gene)%>%
+  split(.$cluster)%>%
+  reduce(full_join, by = "gene", suffix = c("", "_y"))%>%
+	column_to_rownames(var ="gene")%>%
+	select(c(1, 3, 5, 7,9))
+names(pmt)=names(df_scaled)
+pmt=pmt[rownames(df_scaled),]
+
+if (!is.null(pmt)){
+ssmt <- pmt< 0.01
+pmt[ssmt] <-'**'
+smt <- pmt >0.01& pmt <0.05
+pmt[smt] <- '*'
+pmt[!ssmt&!smt]<- ''
+} else {
+  pmt <- F
+ }
+
+if(T){
+col <- c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")
+anno_df <- data.frame(anno_var = factor(colnames(df_scaled)))
+top_anno <- HeatmapAnnotation(cluster=anno_block(gp=gpar(fill=col),
+                                                 labels = levels(cells.cut$assign_cluster),
+                                                 labels_gp = gpar(cex=1.5,col='black')))
+
+p1=Heatmap(df_scaled,  
+       row_names_gp = gpar(fontsize = 18),
+       column_names_gp = gpar(fontsize = 14),
+       heatmap_legend_param = list(
+          title=' '),
+       col = col_fun,
+       column_split = split ,
+       column_title = NULL,
+       cluster_rows = T,        cluster_columns = FALSE,
+       show_row_dend = TRUE, ## 隐藏行聚类
+       show_column_dend = FALSE,  ## 隐藏列聚类
+       show_column_names = F,
+       top_annotation =top_anno,
+       show_row_names = T,
+        row_names_max_width = max_text_width(
+        rownames(df_scaled), 
+        gp = gpar(fontsize = 12)),
+        cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text(sprintf("%s", pmt[i, j]), x, y, gp = gpar(fontsize = 20))
+})
+p2=draw(p1, merge_legend = TRUE, heatmap_legend_side = "right", 
+    annotation_legend_side = "right")
+
+pdf(paste("output/sgNTC/0011_screen_cytokine_gene_AverageExp.pdf", sep=""),width =4, height =16)
+print(p2)
+dev.off()
+}
+
+save(pmt,df_scaled,
+	 file = 'object/sgNTC/screen_cytokine_gene_AverageExp.Rdata')
+
+rm(list =ls())
+load(file = 'object/sgNTC/screen_cytokine_gene_AverageExp.Rdata')
+```
+
+#Running GSVA with Custom Gene Sets
+
+```{r eval=FALSE, include=FALSE}
+suppressPackageStartupMessages({
+	library(GSVA)
+library(GSEABase)
+library(tidyverse)
+library(ggplot2)
+	install.packages("PupillometryR")
+library(PupillometryR)
+library(ggforce)
+library(dplyr) 
+})
+
+geneset <- read.gmt(gmtfile="input/gmt/LCMV_day7_day8_differentiation_signature.gmt")
+head(geneset)
+
+# 按 term 列分组并收集基因
+geneset_list <- geneset %>%
+  group_by(term) %>%
+  summarise(genes = list(gene), .groups = 'drop') %>%
+  pull(genes) %>%
+  set_names(unique(geneset$term))
+
+
+gene.expr <-  as.matrix(cells.cut[["RNA"]]$scale.data)
+dim(gene.expr)
+gsva.result <- GSVA::gsva(gene.expr, 
+						  gset.idx.list=geneset_list,
+						  kcdf='Gaussian')
+
+gsva_long <- reshape2::melt(gsva.result)%>%
+	rename(pathway_name="Var1",
+		   cell_id="Var2",
+		   pathway_score="value")
+scMetadata=cells.cut@meta.data%>%
+	rownames_to_column(var = "cell_id")
+
+gsva_long_meta=merge(gsva_long,scMetadata,
+				by.x ="cell_id", by.y = "cell_id", all = TRUE)
+
+names(gsva_long_meta);min(gsva_long_meta$pathway_score);max(gsva_long_meta$pathway_score)
+
+wilcox_test_result_list=list()
+for(i in levels(gsva_long_meta$pathway_name)){
+gsva_long_meta01=gsva_long_meta%>%
+	filter(pathway_name%in% i)
+
+# 执行两两比较的 Wilcoxon 秩和检验
+wilcox_test_result <- pairwise.wilcox.test(gsva_long_meta01$pathway_score,
+										   gsva_long_meta01$assign_cluster, 
+										   p.adjust.method = "bonferroni")
+wilcox_test_result_list[[i]]=wilcox_test_result
+
+p1 <- 
+    ggplot(data = gsva_long_meta01, 
+           aes(x = assign_cluster, y = pathway_score, fill = assign_cluster)) +
+    geom_flat_violin(position = position_nudge(x = 0.2, y = 0), alpha = 0.8) +
+    geom_point(aes(y = pathway_score, color = assign_cluster), 
+               position = position_jitter(width = 0.15), size = 1, alpha = 0.1) +
+    geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.8) +
+    labs(y = NULL, x = NULL) +  #Normalized z-score
+    guides(fill = "none", color = "none") +
+    scale_y_continuous(limits = c(-1, 1)) +
+    scale_fill_manual(values = c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")) +
+    scale_colour_manual(values = c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")) +
+    coord_flip() +	
+	labs(title=paste0(i,"\n"))+
+	theme_classic()+
+	theme(axis.text.x = element_text(size = 14, color = "black", family = "sans"),
+  	  axis.text.y = element_text(size = 14, color = "black", family = "sans"),
+		  axis.title = element_text(size = 16),
+		  plot.title = element_text(hjust = 0.5, size = 16))
+
+pdf(paste("output/sgNTC/0012_",i,".pdf", sep=""),width =6, height =4,compress=TRUE)
+print(p1)
+dev.off()
+}
+
+save(gsva.result,
+	 geneset_list,
+	 scMetadata,
+	 wilcox_test_result_list,
+	 gsva_long_meta,
+	 file = 'object/sgNTC/differentiation_signature_gsva_result.Rdata')
+
+rm(list =ls())
+load(file = 'object/sgNTC/differentiation_signature_gsva_result.Rdata')
+```
+
+
+#Identify and compare the differences between A and B.
+
+```{r eval=FALSE, include=FALSE}
+if(T){
+c1_markers <- FindMarkers(cells.cut, ident.1 = "c1", ident.2 = c("c2", "c3", "c5", "c4"),
+						  logfc.threshold = 0,
+						  test.use = "wilcox",
+						  min.pct = 0.01,
+						  only.pos = FALSE)
+c2_markers <- FindMarkers(cells.cut, ident.1 = "c2", ident.2 = c("c1", "c3", "c5", "c4"),
+						  logfc.threshold = 0,
+						  test.use = "wilcox",
+						  min.pct = 0.01,
+						  only.pos = FALSE)
+c3_markers <- FindMarkers(cells.cut, ident.1 = "c3", ident.2 = c("c1", "c2", "c5", "c4"),
+						  logfc.threshold = 0,
+						  test.use = "wilcox",
+						  min.pct = 0.01,
+						  only.pos = FALSE)
+c4_markers <- FindMarkers(cells.cut, ident.1 = "c4", ident.2 = c("c1", "c3", "c5", "c2"),
+						  logfc.threshold = 0,
+						  test.use = "wilcox",
+						  min.pct = 0.01,
+						  only.pos = FALSE)
+c5_markers <- FindMarkers(cells.cut, ident.1 = "c5", ident.2 = c("c1", "c3", "c2", "c4"),
+						  logfc.threshold = 0,
+						  test.use = "wilcox",
+						  min.pct = 0.01,
+						  only.pos = FALSE)
+}
+save(c1_markers,
+	c2_markers,
+	c3_markers,
+	c4_markers,
+	 c5_markers,
+	 file = 'object/sgNTC/DEG_c1-c5.Rdata')
+
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+```
+
+#C2 Running GSEA
+
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+
+suppressPackageStartupMessages({
+library(clusterProfiler)
+library(tidyverse)
+library(ggplot2)
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+})
+geneList=c2_markers$avg_log2FC
+names(geneList)=rownames(c2_markers)
+geneList=sort(geneList,decreasing = T)
+  #选择gmt文件（MigDB中的全部基因集）
+  d='input/gmt/'
+  gmts <- list.files(d,pattern = 'gmt')
+  gmts
+  #GSEA分析
+if(T){
+  library(GSEABase) 
+  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
+    if(T){
+    gsea_results <- lapply(gmts, function(gmtfile){
+      # gmtfile=gmts[2]
+      geneset <- read.gmt(file.path(d,gmtfile)) 
+      print(paste0('Now process the ',gmtfile))
+      egmt <- GSEA(geneList, TERM2GENE=geneset, 
+      			 eps=0,
+                   pvalueCutoff = 1, verbose=FALSE)
+      return(egmt)
+    })
+    }
+  #提取gsea结果，熟悉这个对象
+  gsea_results_list<- lapply(gsea_results, function(x){
+    cat(paste(dim(x@result)),'\n')
+    x@result
+  })
+  gsea_results_df <- do.call(rbind, gsea_results_list)
+  # gsea_results_df.cutp = gsea_results_df %>%
+  #   filter(abs(NES)>=1 & (p.adjust<0.05))
+ niceTit <- purrr::map_chr(gsea_results_df$Description, 
+                            function(x,termWidth = 600, rmPrefix = TRUE) {
+      tit <- unlist(strsplit(x, split = "_"))
+      if (length(tit) == 1) {
+         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+      }
+      else {
+         if (rmPrefix == TRUE) {
+            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+         else {
+            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+      }
+      # 最后一步，将句子首字母大写
+    niceTit <- stringr::str_to_sentence(niceTit)
+    return(niceTit)
+   })
+ niceTit
+ gsea_results_df$Description=niceTit
+  write.csv(gsea_results_df, 
+            file ="output/sgNTC/0013_tfh_c2_vs_other_gsea.csv")
+  
+   f='object/sgNTC/tfh_c2_vs_other_gsea.Rdata'
+  save(gsea_results,
+       gsea_results_df,
+       file = f)
+  load(file = f)
+}
+```
+
+#C2 creat TOP20 GO term custom gene set
+
+```{r eval=FALSE, include=FALSE}
+suppressPackageStartupMessages({
+	library(clusterProfiler)
+	library(tidyverse)
+	library(ggplot2)
+	library(org.Hs.eg.db)
+	library(org.Mm.eg.db)
+	library(GSEABase)
+})
+
+geneset <- read.gmt(file.path("input/gmt/msigdb.v2023.2.Mm.symbols.gmt"))
+if(T){
+pathways=list()
+target_term <- c("GOBP_PROTEIN_REFOLDING",
+"GOBP_CELLULAR_RESPONSE_TO_CALCIUM_ION",
+"GOBP_REGULATION_OF_AMINO_ACID_TRANSPORT",
+"GOBP_RESPONSE_TO_MECHANICAL_STIMULUS",
+"GOBP_IMPORT_ACROSS_PLASMA_MEMBRANE",
+"GOBP_CHAPERONE_MEDIATED_PROTEIN_FOLDING",
+"GOBP_AXONEMAL_DYNEIN_COMPLEX_ASSEMBLY",
+"GOBP_REGULATION_OF_POSTSYNAPTIC_MEMBRANE_POTENTIAL",
+"GOBP_NEGATIVE_REGULATION_OF_INTERLEUKIN_17_PRODUCTION",
+"GOBP_MICROTUBULE_BUNDLE_FORMATION",
+"GOBP_POSITIVE_REGULATION_OF_MIRNA_METABOLIC_PROCESS",
+"GOBP_CILIUM_MOVEMENT",
+"GOBP_REGULATION_OF_NCRNA_TRANSCRIPTION",
+"GOBP_REGULATION_OF_EPIDERMIS_DEVELOPMENT",
+"GOBP_SKELETAL_MUSCLE_CELL_DIFFERENTIATION",
+"GOBP_NEUROMUSCULAR_PROCESS",
+"GOBP_REGULATION_OF_DENDRITE_EXTENSION",
+"GOBP_REGULATION_OF_GLYCOLYTIC_PROCESS",
+"GOBP_MULTICELLULAR_ORGANISMAL_RESPONSE_TO_STRESS",
+"GOBP_REGULATION_OF_EPITHELIAL_CELL_DIFFERENTIATION") #20
+for(i in target_term) {
+	pathways[[i]] <- geneset[geneset$term == i, "gene"]
+	# 展平基因列表
+	pathways[[i]] <- unlist(pathways[[i]])
+}
+
+# 创建一个 GMT 文件
+dir.create("input/gmt/GO_term_c2_top")
+gmt_file_path <- "input/gmt/GO_term_c2_top/GO_term_top_pathways_sgNTC_c2_Top20.gmt"
+
+# 构造数据帧
+data_rows <- lapply(names(pathways), function(name) {
+  genes <- pathways[[name]]
+  data.frame(
+    GeneSetName = name,
+    GeneSetDescription = name,
+    gene_names = genes,
+    stringsAsFactors = FALSE)
+})
+
+# 合并所有行
+data_df <- do.call(rbind, data_rows)
+
+# 写入 GMT 文件
+write.table(data_df,
+            file = gmt_file_path,
+            row.names = FALSE,
+            col.names = FALSE,
+            sep = "\t",
+            quote = FALSE
+)
+}
+```
+
+#C2 Running GSEA Based on TOP20 GO Terms
+
+```{r eval=FALSE, include=FALSE}
+rm(list=ls())
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+geneList=c2_markers$avg_log2FC
+names(geneList)=rownames(c2_markers)
+geneList=sort(geneList,decreasing = T)
+  #选择gmt文件（MigDB中的全部基因集）
+  d='input/gmt/GO_term_c2_top/'
+  gmts <- list.files(d,pattern = 'GO_term_top_pathways_sgNTC_c2_Top20.gmt')
+  gmts
+  #GSEA分析
+if(T){
+  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
+    if(T){
+    gsea_results <- lapply(gmts, function(gmtfile){
+      # gmtfile=gmts[2]
+      geneset <- read.gmt(file.path(d,gmtfile)) 
+      print(paste0('Now process the ',gmtfile))
+      egmt <- GSEA(geneList, TERM2GENE=geneset, 
+      			 eps=0,
+                   pvalueCutoff = 1, verbose=FALSE)
+      return(egmt)
+    })
+    }
+  #提取gsea结果，熟悉这个对象
+  gsea_results_list<- lapply(gsea_results, function(x){
+    cat(paste(dim(x@result)),'\n')
+    x@result
+  })
+  gsea_results_df <- do.call(rbind, gsea_results_list)
+  # gsea_results_df.cutp = gsea_results_df %>%
+  #   filter(abs(NES)>=1 & (p.adjust<0.05))
+ niceTit <- purrr::map_chr(unique(gsea_results_df$Description), 
+                            function(x,termWidth = 600, rmPrefix = TRUE) {
+      tit <- unlist(strsplit(x, split = "_"))
+      if (length(tit) == 1) {
+         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+      }
+      else {
+         if (rmPrefix == TRUE) {
+            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+         else {
+            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+      }
+      # 最后一步，将句子首字母大写
+    niceTit <- stringr::str_to_sentence(niceTit)
+    return(niceTit)
+   })
+ gsea_results_df$Description=niceTit
+  write.csv(gsea_results_df, 
+            file ="output/sgNTC/0014_tfh_c2_vs_other_GOterm_top20_gsea.csv")
+  
+   f='object/sgNTC/tfh_c2_vs_other_GOterm_top20_gsea.Rdata'
+  save(gsea_results,
+       gsea_results_df,
+       file = f)
+  load(file = f)
+}
+```
+
+#C2 GOterm_top20_gsea visualization
+
+```{r eval=FALSE, include=FALSE}
+rm(list=ls());gc()
+f='object/sgNTC/tfh_c2_vs_other_GOterm_top20_gsea.Rdata'
+load(file = f)
+
+gsea_results_df=gsea_results_df%>% 
+	arrange(pvalue)
+gsea_results_df$Description <- factor(gsea_results_df$Description, 
+                                           levels = gsea_results_df$Description)
+#1:Nerve interaction and regeneration
+#2:Tissue repair and wound healing
+#3:other
+gsea_results_df$path_group=c(3,1,3,1,
+							 3,3,3,1,
+							 3,3,3,1,
+							 1,3,3,3,
+							 3,3,1,3)
+gsea_results_df$path_group <- factor(gsea_results_df$path_group, 
+                                           levels = c(1,3))
+if(T){
+p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
+  geom_bar(stat = "identity", width = 0.7, colour = "black")+
+  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
+  theme_classic()+
+  theme(axis.text.y = element_text(colour = 'black', size = 8),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_text(colour = 'black', size = 8),
+        axis.line = element_line(colour = 'black', linewidth =0.3),
+        axis.text.x = element_text(colour = 'black', size = 8),
+        axis.ticks.x = element_line(colour = 'black'),
+        axis.title.x = element_text(colour = 'black', size = 8),
+  	  plot.title = element_text( size = 8,          # 新增：设置主标题字体大小为8
+  	  						   hjust = 0.5, margin = margin(b = 8)),  # 左对齐并增加下边距
+  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
+  	   legend.title = element_text(size = 8),  # 新增：图例标题字体大小
+        legend.position = "none")+ 
+  scale_x_continuous(expand = c(0,0))+
+  scale_fill_manual(values = c("#65B0C6","white"))+
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  labs(title = "GO terms enriched in C2 vs other Tfh",
+       y=c(""),
+  	 x=paste0("-Log10(p value)"))
+pdf("output/sgNTC/0015_tfh_c2_vs_other_GOterm_top20_gsea.pdf", w=3.5, h=3.5)
+print(p)
+dev.off()
+
+graph2ppt(p,paste("output/sgNTC/0015_tfh_c2_vs_other_GOterm_top20_gsea.pptx", sep=""),width =4, height =4)
+}
+
+qsavem(gsea_results,
+	   gsea_results_df,
+	  file="object/sgNTC/0015_tfh_c2_vs_other_GOterm_top20_gsea.qs")
+
+qload("object/sgNTC/0015_tfh_c2_vs_other_GOterm_top20_gsea.qs")
+```
+
+#C2 gene log2FC vs. average expression dot plot
+```{r eval=FALSE, include=FALSE}
+rm(list=ls());gc()
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+# 按celltype分组计算所有基因的平均表达量
+# 1.默认使用RNA assay中的data层 2.按分组计算均值 3.Z-score标准化
+avg_exp <- as.data.frame(AverageExpression(cells.cut, assays = "RNA", 
+										   group.by = "assign_cluster"))%>% 
+	rownames_to_column(var = "gene_name")
+
+print(avg_exp["Jun",])
+
+f='object/sgNTC/tfh_c2_vs_other_GOterm_top20_gsea.Rdata'
+load(file = f)
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+gsea_results_df=gsea_results_df%>% 
+	arrange(pvalue)
+gsea_results_df$Description <- factor(gsea_results_df$Description, 
+                                           levels = gsea_results_df$Description)
+gsea_results_df$Description
+
+if(T){
+	#neuron related
+neuron_related=which(gsea_results[[1]]$ID %in% c("GOBP_RESPONSE_TO_MECHANICAL_STIMULUS",
+				 "GOBP_CELLULAR_RESPONSE_TO_CALCIUM_ION",
+				 "GOBP_REGULATION_OF_POSTSYNAPTIC_MEMBRANE_POTENTIAL",
+				 "GOBP_MICROTUBULE_BUNDLE_FORMATION",
+				 "GOBP_NEUROMUSCULAR_PROCESS",
+				 "GOBP_REGULATION_OF_DENDRITE_EXTENSION"))
+
+#在表达矩阵中筛选并保留目标基因集中的核心基因：
+genes <- unlist(strsplit(gsea_results[[1]]$core_enrichment[neuron_related], "/"))
+
+if(T){
+DEG_select_all <- c2_markers%>%
+	mutate(core_enrichment= ifelse(rownames(c2_markers) %in% genes, T, F))%>%
+	arrange(desc(avg_log2FC))%>%
+	rownames_to_column(var = "gene_name")%>%
+  mutate(high_pct1 = ifelse(pct.1 > 0.1, T, F))%>%
+  select(gene_name, everything(),high_pct1)
+
+DEG_select_all_merged_df <- inner_join(DEG_select_all,avg_exp, by = "gene_name")%>%
+	mutate(display_gene = ifelse(avg_log2FC > 0.5 & RNA.c2>1 , gene_name, ""))%>%
+	mutate(filter_display = ifelse(avg_log2FC > 0.5 & RNA.c2>1 , T, F))
+
+write.csv(DEG_select_all_merged_df,
+		  file="output/sgNTC/0016_tfh_c2_vs_other_DEG_all_merged_df.csv",
+		  na = "",row.names = F)
+}
+
+DEG_select <- DEG_select_all_merged_df%>%
+	dplyr::filter(core_enrichment == T)%>%
+	dplyr::arrange(desc(avg_log2FC))
+}
+
+range(DEG_select$avg_log2FC);range(DEG_select$RNA.c2);
+mycol <- c("#d8d8d8","black")
+if(T){
+p <- ggplot(DEG_select, aes(x = RNA.c2, y = avg_log2FC, color = filter_display)) +
+  geom_point(size = 1.2) +  # 黑色散点
+	scale_color_manual(values = mycol) +  # 应用颜色方案
+  labs(title = "Expression pattern of neuron related genes",
+    x = "Average expression in C2",
+    y = expression(Log[2]~"(C2 vs. Other) Tfh")) +
+  scale_x_continuous(limits = c(0, 35), breaks = seq(0, 35, 5)) +  # 横轴刻度
+  scale_y_continuous(limits = c(0, 4.5), breaks = seq(0, 4.5, 1)) + # 纵轴刻度
+  theme_bw() +
+	geom_vline(xintercept = 1, color = "#99919c", linetype = "solid") +  # 新x轴参考线
+	geom_hline(yintercept = 0.5, color = "#99919c", linetype = "solid")+    # 新y轴参考线
+  theme(
+  	axis.line = element_line(linewidth = 0.3),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", linewidth = 0.3),
+    plot.title = element_text(hjust = 0.5, size = 8),
+    axis.title = element_text(size = 8),
+    axis.text = element_text(color = "black", size = 8),  # 所有坐标轴文本统一设置
+    legend.position = "none"
+  )+    #最后添加标签，浮于上方
+	 geom_text_repel(  # 智能标签防重叠
+    aes(label = display_gene),
+    size = 3,
+    box.padding = 0.4,  # 标签与点的间距
+    segment.color = "black",
+    segment.size = 0.2,             # 新增：设置连接线粗细（默认值为0.5，可进一步调小）
+    max.overlaps = 300,
+    fontface = "italic" ) + # 斜体标签
+  coord_flip()  # 坐标轴翻转
+
+
+pdf("output/sgNTC/0016_tfh_c2_vs_other_neuron_related_genes.pdf", w=4, h=6)
+print(p)
+dev.off()
+
+graph2ppt(p,paste("output/sgNTC/0016_tfh_c2_vs_other_neuron_related_genes.pptx", sep=""),width =2, height =3)
+}
+
+qsavem(DEG_select_all_merged_df,
+	   DEG_select,
+	   DEG_select_all,
+	   avg_exp,
+	   gsea_results_df,
+	   neuron_related,
+	   c2_markers,
+	  file="object/sgNTC/0016_tfh_c2_vs_other_DEG_all_merged_df.qs")
+
+qload("object/sgNTC/0016_tfh_c2_vs_other_DEG_all_merged_df.qs")
+```
+
+#C2 Neuron and wound healing
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+f='object/sgNTC/tfh_c2_vs_other_GOterm_top20_gsea.Rdata'
+load(file = f)
+if(T){
+	#neuron related
+neuron_related=which(gsea_results[[1]]$ID %in% c("GOBP_RESPONSE_TO_MECHANICAL_STIMULUS",
+				 "GOBP_CELLULAR_RESPONSE_TO_CALCIUM_ION",
+				 "GOBP_REGULATION_OF_POSTSYNAPTIC_MEMBRANE_POTENTIAL",
+				 "GOBP_AXONEMAL_DYNEIN_COMPLEX_ASSEMBLY",
+				 "GOBP_CILIUM_MOVEMENT",
+				 "GOBP_MICROTUBULE_BUNDLE_FORMATION",
+				 "GOBP_NEUROMUSCULAR_PROCESS",
+				 "GOBP_REGULATION_OF_DENDRITE_EXTENSION"))
+
+#在表达矩阵中筛选并保留目标基因集中的核心基因：
+genes <- unlist(strsplit(gsea_results[[1]]$core_enrichment[neuron_related], "/"))
+if(T){
+gene_anno=read.csv(file = "input/Gene_classification/gene_anno_all.csv")
+
+##提取标准化表达矩阵
+mat=as.data.frame(GetAssayData(cells.cut,layer = 'scale.data'))%>%
+	rownames_to_column(var = "rowname")%>%
+	column_to_rownames(var = "rowname")
+dim(mat);mat[1:10,1:10]
+
+DEG_select_all <- c2_markers[rownames(c2_markers) %in% genes,]%>%
+	arrange(desc(avg_log2FC))%>%
+	rownames_to_column(var = "gene_name")%>%
+  left_join(gene_anno, by = c("gene_name" = "Gene_name"))  %>%
+  mutate(VariableFeatures_3000 = ifelse(gene_name %in% rownames(mat), T, F))%>%
+  select(gene_name,Gene_id,VariableFeatures_3000, everything())
+
+write.csv(DEG_select_all,
+		  file="output/sgNTC/0016_tfh_c2_vs_other_Neuron_all.csv",
+		  na = "",row.names = F)
+}
+
+DEG_select <- c2_markers[rownames(c2_markers) %in% genes,]%>%
+	#filter(p_val<=0.05)%>%
+	top_n(n=40,wt=avg_log2FC)%>% 
+	arrange(desc(avg_log2FC))%>%
+	rownames_to_column(var = "gene_name")
+
+DEG_select$gene_name <- factor(DEG_select$gene_name, 
+                                           levels = DEG_select$gene_name)
+if(T){
+p<-ggplot(DEG_select, aes(gene_name, avg_log2FC)) +
+  geom_col(position = position_dodge(width = 0.5), width = 0.6, linewidth = 0.5, 
+           fill="#65B0C6",colour = 'black') +
+  scale_x_discrete(position = "bottom") +
+	scale_y_continuous(position ="left",expand = c(0,0)) +
+	#scale_y_reverse(position ="left",expand = c(0,0))+
+  labs(x = 'Nerve interaction and regeneration', y = 'FC log2 (Fos+/other Tfh)') +
+  theme(panel.grid = element_blank(), 
+        axis.line = element_line(colour = "black",size=0.8),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(size=12,color="black",angle = 90,hjust = 1,vjust =0.5,
+                                 face = "italic"),
+        axis.text.y = element_text(size = 12,colour = "black"),
+  	  axis.title.x = element_text(size = 14, hjust = 0.5),  # 调整 x 轴标题位置
+        axis.title.y=element_text(size=14),
+        axis.ticks.length=unit(0.1, "cm"),
+  )+
+  theme(plot.margin = unit(c(0.2,0.2,0.1,0.1),"cm"))
+pdf("output/sgNTC/0016_tfh_c2_vs_other_Neuron.pdf", w=8, h=3.5)
+print(p)
+dev.off()
+}
+}
+```
+
+#C2 Tissue repair and wound healing
+```{r eval=FALSE, include=FALSE}
+if(T){
+woundhealing_related=which(gsea_results[[1]]$ID %in% c(
+	"GOBP_REGULATION_OF_EPIDERMIS_DEVELOPMENT", #10
+				 "GOBP_REGULATION_OF_EPITHELIAL_CELL_DIFFERENTIATION"))
+#在表达矩阵中筛选并保留目标基因集中的核心基因：
+genes <- unlist(strsplit(gsea_results[[1]]$core_enrichment[woundhealing_related], "/"))
+
+if(T){
+gene_anno=read.csv(file = "input/Gene_classification/gene_anno_all.csv")
+
+##提取标准化表达矩阵
+mat=as.data.frame(GetAssayData(cells.cut,layer = 'scale.data'))%>%
+	rownames_to_column(var = "rowname")%>%
+	column_to_rownames(var = "rowname")
+dim(mat);mat[1:10,1:10]
+
+DEG_select_all <- c2_markers[rownames(c2_markers) %in% genes,]%>%
+	arrange(desc(avg_log2FC))%>%
+	rownames_to_column(var = "gene_name")%>%
+  left_join(gene_anno, by = c("gene_name" = "Gene_name"))  %>%
+  mutate(VariableFeatures_3000 = ifelse(gene_name %in% rownames(mat), T, F))%>%
+  select(gene_name,Gene_id,VariableFeatures_3000, everything())
+
+write.csv(DEG_select_all,
+		  file="output/sgNTC/0016_tfh_c2_vs_other_wound_healing_all.csv",
+		  na = "",row.names = F)
+}
+DEG_select <- c2_markers[rownames(c2_markers) %in% genes,]%>%
+	#filter(p_val<=0.05)%>%
+	top_n(n=40,wt=avg_log2FC)%>% 
+	arrange(desc(avg_log2FC))%>%
+	rownames_to_column(var = "gene_name")
+
+DEG_select$gene_name <- factor(DEG_select$gene_name, 
+                                           levels = DEG_select$gene_name)
+if(T){
+p<-ggplot(DEG_select, aes(gene_name, avg_log2FC)) +
+  geom_col(position = position_dodge(width = 0.5), width = 0.6, linewidth = 0.5, 
+           fill="#ffd400",colour = 'black') +
+  scale_x_discrete(position = "top") +
+	#scale_y_continuous(position ="left",expand = c(0,0)) +
+	scale_y_reverse(position ="left",expand = c(0,0))+
+  labs(x = 'Tissue repair and wound healing', y = 'FC log2 (Fos+/other Tfh)') +
+  theme(panel.grid = element_blank(), 
+        axis.line = element_line(colour = "black",size=0.8),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(size=12,color="black",angle = 90, hjust =0, vjust =0.5,
+                                 face = "italic"),
+        axis.text.y = element_text(size = 12,colour = "black"),
+  	  axis.title.x = element_text(size = 14, hjust = 0.5),  # 调整 x 轴标题位置
+        axis.title.y=element_text(size=14),
+        axis.ticks.length=unit(0.1, "cm"),
+  )+
+  theme(plot.margin = unit(c(0.2,0.2,0.1,0.1),"cm"))
+pdf("output/sgNTC/0016_tfh_c2_vs_other_wound_healing.pdf", w=8, h=3.5)
+print(p)
+dev.off()
+}
+}
+```
+
+#Protein-protein interaction
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+load(file = 'object/sgNTC/top30marker_merged_clusters.Rdata')
+
+geneset <- read.gmt(file.path("input/gmt/LCMV_day7_day8_differentiation_signature.gmt"))
+LCMVday7Tfh_gene=geneset$gene[geneset$term=="LCMV day7 Tfh differentiation signature"]
+LCMVday7Th1_gene=geneset$gene[geneset$term=="LCMV day7 Th1 differentiation signature"]
+
+gene_anno=read.csv(file = "input/Gene_classification/gene_anno_all.csv")
+
+# 合并数据
+top200 <- pbmc.markers%>%
+		filter(pct.1>=0.1)%>%
+	group_by(cluster)%>%
+	top_n(n=200,wt=avg_log2FC)%>% 
+	arrange(cluster,p_val,desc(avg_log2FC))%>%
+  left_join(gene_anno, by = c("gene" = "Gene_name"))  %>%
+  select(gene,Gene_id, everything())
+
+top200_in_LCMVday7Tfh=top50%>% 
+	filter(gene %in% LCMVday7Tfh_gene)%>%
+	group_by(cluster)%>%
+	arrange(cluster,p_val,desc(avg_log2FC))
+top200_in_LCMVday7Th1=top50%>% 
+	filter(gene %in% LCMVday7Th1_gene)%>%
+	group_by(cluster)%>%
+	arrange(cluster,p_val,desc(avg_log2FC))
+
+write.csv(top200, 
+            file ="output/sgNTC/0017_top200.csv")
+write.csv(top200_in_LCMVday7Tfh, 
+            file ="output/sgNTC/0017_top200_in_LCMVday7Tfh.csv")
+write.csv(top200_in_LCMVday7Th1, 
+            file ="output/sgNTC/0017_top200_in_LCMVday7Th1.csv")
+
+save(top200,
+	 top200_in_LCMVday7Tfh,
+	 top200_in_LCMVday7Th1,
+	 file = 'object/sgNTC/Protein_protein_interaction.Rdata')
+
+load(file = 'object/sgNTC/Protein_protein_interaction.Rdata')
+
+a=top200$gene[top200$cluster%in% c("c1")]%>%
+	paste(collapse = ", ") %>%
+	toupper()
+a
+```
+
+#C1 Running GSEA
+
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+
+suppressPackageStartupMessages({
+library(clusterProfiler)
+library(tidyverse)
+library(ggplot2)
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+})
+geneList=c1_markers$avg_log2FC
+names(geneList)=rownames(c1_markers)
+geneList=sort(geneList,decreasing = T)
+  #选择gmt文件（MigDB中的全部基因集）
+  d='input/gmt/'
+  gmts <- list.files(d,pattern = 'gmt')
+  gmts
+  #GSEA分析
+if(T){
+  library(GSEABase) 
+  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
+    if(T){
+    gsea_results <- lapply(gmts, function(gmtfile){
+      # gmtfile=gmts[2]
+      geneset <- read.gmt(file.path(d,gmtfile)) 
+      print(paste0('Now process the ',gmtfile))
+      egmt <- GSEA(geneList, TERM2GENE=geneset, 
+      			 eps=0,
+                   pvalueCutoff = 1, verbose=FALSE)
+      return(egmt)
+    })
+    }
+  #提取gsea结果，熟悉这个对象
+  gsea_results_list<- lapply(gsea_results, function(x){
+    cat(paste(dim(x@result)),'\n')
+    x@result
+  })
+  gsea_results_df <- do.call(rbind, gsea_results_list)
+  # gsea_results_df.cutp = gsea_results_df %>%
+  #   filter(abs(NES)>=1 & (p.adjust<0.05))
+ niceTit <- purrr::map_chr(gsea_results_df$Description, 
+                            function(x,termWidth = 600, rmPrefix = TRUE) {
+      tit <- unlist(strsplit(x, split = "_"))
+      if (length(tit) == 1) {
+         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+      }
+      else {
+         if (rmPrefix == TRUE) {
+            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+         else {
+            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+      }
+      # 最后一步，将句子首字母大写
+    niceTit <- stringr::str_to_sentence(niceTit)
+    return(niceTit)
+   })
+ niceTit
+ gsea_results_df$Description=niceTit
+  write.csv(gsea_results_df, 
+            file ="output/sgNTC/0013_tfh_c1_vs_other_gsea.csv")
+  
+   f='object/sgNTC/tfh_c1_vs_other_gsea.Rdata'
+  save(gsea_results,
+       gsea_results_df,
+       file = f)
+  load(file = f)
+}
+```
+
+#C1 creat TOP20 GO term custom gene set
+
+```{r eval=FALSE, include=FALSE}
+suppressPackageStartupMessages({
+	library(clusterProfiler)
+	library(tidyverse)
+	library(ggplot2)
+	library(org.Hs.eg.db)
+	library(org.Mm.eg.db)
+	library(GSEABase)
+})
+
+geneset <- read.gmt(file.path("input/gmt/msigdb.v2023.2.Mm.symbols.gmt"))
+if(T){
+pathways=list()
+target_term <- c("GOBP_ADHERENS_JUNCTION_ORGANIZATION",
+"GOBP_SMOOTH_MUSCLE_CELL_DIFFERENTIATION",
+"GOBP_MOLTING_CYCLE",
+"GOBP_PHOSPHATIDYLINOSITOL_DEPHOSPHORYLATION",
+"GOBP_APPENDAGE_MORPHOGENESIS",
+"GOBP_NEURON_PROJECTION_REGENERATION",
+"GOBP_AXON_REGENERATION",
+"GOBP_CARTILAGE_DEVELOPMENT",
+"GOBP_HINDBRAIN_DEVELOPMENT",
+"GOBP_MUSCLE_ADAPTATION",
+"GOBP_DETECTION_OF_MECHANICAL_STIMULUS_INVOLVED_IN_SENSORY_PERCEPTION",
+"GOBP_METENCEPHALON_DEVELOPMENT",
+"GOBP_ACTIN_MEDIATED_CELL_CONTRACTION",
+"GOBP_STEM_CELL_DIFFERENTIATION",
+"GOBP_CENTRAL_NERVOUS_SYSTEM_DEVELOPMENT",
+"GOBP_NON_CANONICAL_WNT_SIGNALING_PATHWAY",
+"GOBP_REGULATION_OF_CIRCADIAN_RHYTHM",
+"GOBP_EMBRYONIC_MORPHOGENESIS",
+"GOBP_FOREBRAIN_DEVELOPMENT",
+"GOBP_NEURON_MATURATION") #20
+for(i in target_term) {
+	pathways[[i]] <- geneset[geneset$term == i, "gene"]
+	# 展平基因列表
+	pathways[[i]] <- unlist(pathways[[i]])
+}
+
+# 创建一个 GMT 文件
+dir.create("input/gmt/GO_term_c1_top")
+gmt_file_path <- "input/gmt/GO_term_c1_top/GO_term_top_pathways_sgNTC_c1_Top20.gmt"
+
+# 构造数据帧
+data_rows <- lapply(names(pathways), function(name) {
+  genes <- pathways[[name]]
+  data.frame(
+    GeneSetName = name,
+    GeneSetDescription = name,
+    gene_names = genes,
+    stringsAsFactors = FALSE)
+})
+
+# 合并所有行
+data_df <- do.call(rbind, data_rows)
+
+# 写入 GMT 文件
+write.table(data_df,
+            file = gmt_file_path,
+            row.names = FALSE,
+            col.names = FALSE,
+            sep = "\t",
+            quote = FALSE
+)
+}
+```
+
+#C1 Running GSEA Based on TOP20 GO Terms
+
+```{r eval=FALSE, include=FALSE}
+rm(list=ls());gc()
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+geneList=c1_markers$avg_log2FC
+names(geneList)=rownames(c1_markers)
+geneList=sort(geneList,decreasing = T)
+  #选择gmt文件（MigDB中的全部基因集）
+  d='input/gmt/GO_term_c1_top/'
+  gmts <- list.files(d,pattern = 'GO_term_top_pathways_sgNTC_c1_Top20.gmt')
+  gmts
+  #GSEA分析
+if(T){
+  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
+    if(T){
+    gsea_results <- lapply(gmts, function(gmtfile){
+      # gmtfile=gmts[2]
+      geneset <- read.gmt(file.path(d,gmtfile)) 
+      print(paste0('Now process the ',gmtfile))
+      egmt <- GSEA(geneList, TERM2GENE=geneset, 
+      			 eps=0,
+                   pvalueCutoff = 1, verbose=FALSE)
+      return(egmt)
+    })
+    }
+  #提取gsea结果，熟悉这个对象
+  gsea_results_list<- lapply(gsea_results, function(x){
+    cat(paste(dim(x@result)),'\n')
+    x@result
+  })
+  gsea_results_df <- do.call(rbind, gsea_results_list)
+  # gsea_results_df.cutp = gsea_results_df %>%
+  #   filter(abs(NES)>=1 & (p.adjust<0.05))
+ niceTit <- purrr::map_chr(unique(gsea_results_df$Description), 
+                            function(x,termWidth = 600, rmPrefix = TRUE) {
+      tit <- unlist(strsplit(x, split = "_"))
+      if (length(tit) == 1) {
+         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+      }
+      else {
+         if (rmPrefix == TRUE) {
+            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+         else {
+            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+      }
+      # 最后一步，将句子首字母大写
+    niceTit <- stringr::str_to_sentence(niceTit)
+    return(niceTit)
+   })
+ gsea_results_df$Description=niceTit
+  write.csv(gsea_results_df, 
+            file ="output/sgNTC/0014_tfh_c1_vs_other_GOterm_top20_gsea.csv")
+  
+   f='object/sgNTC/tfh_c1_vs_other_GOterm_top20_gsea.Rdata'
+  save(gsea_results,
+       gsea_results_df,
+       file = f)
+  load(file = f)
+}
+```
+
+#C1 GOterm_top20_gsea visualization
+
+```{r eval=FALSE, include=FALSE}
+rm(list=ls());gc()
+f='object/sgNTC/tfh_c1_vs_other_GOterm_top20_gsea.Rdata'
+load(file = f)
+
+gsea_results_df=gsea_results_df%>% 
+	arrange(pvalue)
+gsea_results_df$Description <- factor(gsea_results_df$Description, 
+                                           levels = gsea_results_df$Description)
+#1:Nerve interaction and regeneration
+#2:Tissue repair and wound healing
+#3:other
+gsea_results_df$path_group=c(1,3,1,3,
+							 1,3,3,3,
+							 3,3,1,1,
+							 3,1,3,1,
+							 3,3,3,1)
+gsea_results_df$path_group <- factor(gsea_results_df$path_group, 
+                                           levels = c(1,3))
+if(T){
+p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
+  geom_bar(stat = "identity", width = 0.7, colour = "black")+
+  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
+  theme_classic()+
+  theme(axis.text.y = element_text(colour = 'black', size = 14),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_text(colour = 'black', size = 14),
+        axis.line = element_line(colour = 'black', linewidth =0.5),
+        axis.text.x = element_text(colour = 'black', size = 14),
+        axis.ticks.x = element_line(colour = 'black'),
+        axis.title.x = element_text(colour = 'black', size = 14),
+  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)),  # 左对齐并增加下边距
+  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
+        legend.position = "none")+ 
+  scale_x_continuous(expand = c(0,0))+
+  scale_fill_manual(values = c("#65B0C6","white"))+
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  labs(title = "GO terms enriched in C1 vs other Tfh",
+       y=c(""),
+  	 x=c("-log10(p-value)"))
+pdf("output/sgNTC/0015_tfh_c1_vs_other_GOterm_top20_gsea.pdf", w=8, h=7)
+print(p)
+dev.off()
+
+p1=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
+  geom_bar(stat = "identity", width = 0.7, colour = "black")+
+  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
+  theme_classic()+
+  theme(axis.text.y = element_text(colour = 'black', size = 8),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_text(colour = 'black', size = 8),
+        axis.line = element_line(colour = 'black', linewidth =0.3),
+        axis.text.x = element_text(colour = 'black', size = 8),
+        axis.ticks.x = element_line(colour = 'black'),
+        axis.title.x = element_text(colour = 'black', size = 8),
+  	  plot.title = element_text( size = 8,          # 新增：设置主标题字体大小为8
+  	  						   hjust = 0.5, margin = margin(b = 8)),  # 左对齐并增加下边距
+  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
+  	   legend.title = element_text(size = 8),  # 新增：图例标题字体大小
+        legend.position = "none")+ 
+  scale_x_continuous(expand = c(0,0))+
+  scale_fill_manual(values = c("#65B0C6","white"))+
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  labs(title = "GO terms enriched in C1 vs other Tfh",
+       y=c(""),
+  	 x=paste0("-Log10(p value)"))
+
+graph2ppt(p1,paste("output/sgNTC/0015_tfh_c1_vs_other_GOterm_top20_gsea.pptx", sep=""),width =4.5, height =4)
+}
+
+qsavem(gsea_results,
+	   gsea_results_df,
+	  file="object/sgNTC/0015_tfh_c1_vs_other_GOterm_top20_gsea.qs")
+
+qload("object/sgNTC/0015_tfh_c1_vs_other_GOterm_top20_gsea.qs")
+```
+
+#C1 gene log2FC vs. average expression dot plot
+```{r eval=FALSE, include=FALSE}
+rm(list=ls());gc()
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+# 按celltype分组计算所有基因的平均表达量
+# 1.默认使用RNA assay中的data层 2.按分组计算均值 3.Z-score标准化
+avg_exp <- as.data.frame(AverageExpression(cells.cut, assays = "RNA", 
+										   group.by = "assign_cluster"))%>% 
+	rownames_to_column(var = "gene_name")
+
+print(avg_exp["Jun",])
+
+f='object/sgNTC/tfh_c1_vs_other_GOterm_top20_gsea.Rdata'
+load(file = f)
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+gsea_results_df=gsea_results_df%>% 
+	arrange(pvalue)
+gsea_results_df$Description <- factor(gsea_results_df$Description, 
+                                           levels = gsea_results_df$Description)
+gsea_results_df$Description
+
+if(T){
+	#neuron related
+neuron_related=which(gsea_results[[1]]$ID %in% c("GOBP_CENTRAL_NERVOUS_SYSTEM_DEVELOPMENT",
+				 "GOBP_FOREBRAIN_DEVELOPMENT",
+				 "GOBP_HINDBRAIN_DEVELOPMENT",
+				 "GOBP_METENCEPHALON_DEVELOPMENT",
+				 "GOBP_NEURON_PROJECTION_REGENERATION",
+				 "GOBP_AXON_REGENERATION",
+				 "GOBP_DETECTION_OF_MECHANICAL_STIMULUS_INVOLVED_IN_SENSORY_PERCEPTION",
+				 "GOBP_NEURON_MATURATION"))
+
+#在表达矩阵中筛选并保留目标基因集中的核心基因：
+genes <- unlist(strsplit(gsea_results[[1]]$core_enrichment[neuron_related], "/"))
+
+if(T){
+DEG_select_all <- c1_markers%>%
+	mutate(core_enrichment= ifelse(rownames(c1_markers) %in% genes, T, F))%>%
+	arrange(desc(avg_log2FC))%>%
+	rownames_to_column(var = "gene_name")%>%
+  mutate(high_pct1 = ifelse(pct.1 > 0.1, T, F))%>%
+  select(gene_name, everything(),high_pct1)
+
+DEG_select_all_merged_df <- inner_join(DEG_select_all,avg_exp, by = "gene_name")%>%
+	mutate(display_gene = ifelse(avg_log2FC > 0.5 & RNA.c1>1 , gene_name, ""))%>%
+	mutate(filter_display = ifelse(avg_log2FC > 0.5 & RNA.c1>1 , T, F))
+
+write.csv(DEG_select_all_merged_df,
+		  file="output/sgNTC/0016_tfh_c1_vs_other_DEG_all_merged_df.csv",
+		  na = "",row.names = F)
+}
+
+DEG_select <- DEG_select_all_merged_df%>%
+	dplyr::filter(core_enrichment == T)%>%
+	dplyr::arrange(desc(avg_log2FC))
+}
+
+range(DEG_select$avg_log2FC);range(DEG_select$RNA.c1);
+
+mycol <- c("#d8d8d8","black")
+if(T){
+p <- ggplot(DEG_select, aes(x = RNA.c1, y = avg_log2FC,color = filter_display)) +
+  geom_point(size = 3) +  # 黑色散点
+  geom_text_repel(  # 智能标签防重叠
+    aes(label = display_gene),
+    size = 5,
+    box.padding = 0.4,  # 标签与点的间距
+    segment.color = "black",
+    max.overlaps = 20,
+    fontface = "italic" ) + # 斜体标签
+		scale_color_manual(values = mycol) +  # 应用颜色方案
+  labs(title = "Expression pattern of neuron related genes",
+    x = "Average expression in C1",
+    y = expression(Log[2]~"(C1 vs. Other) Tfh")  #使用 expression() 函数构建数学表达式，通过 [] 表示下标，~ 连接文本
+    ) +
+  scale_x_continuous(limits = c(0, 20), breaks = seq(0, 20, 5)) +  # 横轴刻度
+  scale_y_continuous(limits = c(0, 2), breaks = seq(0, 2, 0.5)) + # 纵轴刻度
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", linewidth = 1),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(color = "black"),
+    legend.position = "none"
+  )+  
+	geom_vline(xintercept = 1, color = "black", linetype = "solid") +  # 新x轴参考线
+	geom_hline(yintercept = 0.5, color = "black", linetype = "solid")+    # 新y轴参考线
+  coord_flip()  # 坐标轴翻转
+
+p1 <- ggplot(DEG_select, aes(x = RNA.c1, y = avg_log2FC,color = filter_display)) +
+  geom_point(size = 3) +  # 黑色散点
+  geom_text_repel(  # 智能标签防重叠
+    aes(label = display_gene),
+    size = 5,
+    box.padding = 0.8,  # 标签与点的间距
+    segment.color = "black",
+    max.overlaps = 100,
+    fontface = "italic" ) + # 斜体标签
+		scale_color_manual(values = mycol) +  # 应用颜色方案
+  labs(title = "Expression pattern of neuron related genes",
+    x = "Average expression in C1",
+    y = expression(Log[2]~"(C1 vs. Other) Tfh")  #使用 expression() 函数构建数学表达式，通过 [] 表示下标，~ 连接文本
+    ) +
+  scale_x_continuous(limits = c(0, 20), breaks = seq(0, 20, 5)) +  # 横轴刻度
+  scale_y_continuous(limits = c(0, 2), breaks = seq(0, 2, 0.5)) + # 纵轴刻度
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", linewidth = 1),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(color = "black"),
+    legend.position = "none"
+  )+  
+	geom_vline(xintercept = 1, color = "black", linetype = "solid") +  # 新x轴参考线
+	geom_hline(yintercept = 0.5, color = "black", linetype = "solid")+    # 新y轴参考线
+  coord_flip()  # 坐标轴翻转
+
+
+pdf("output/sgNTC/0016_tfh_c1_vs_other_neuron_related_genes.pdf", w=4, h=6)
+print(p)
+dev.off()
+
+pdf("output/sgNTC/0016_tfh_c1_vs_other_neuron_related_genes_1.pdf", w=14, h=20)
+print(p1)
+dev.off()
+
+p2 <- ggplot(DEG_select, aes(x = RNA.c1, y = avg_log2FC, color = filter_display)) +
+  geom_point(size = 1.2) +  # 黑色散点
+	scale_color_manual(values = mycol) +  # 应用颜色方案
+  labs(title = "Expression pattern of neuron related genes",
+    x = "Average expression in C1",
+    y = expression(Log[2]~"(C1 vs. Other) Tfh")) +
+  scale_x_continuous(limits = c(0, 20), breaks = seq(0, 20, 5)) +  # 横轴刻度
+  scale_y_continuous(limits = c(0, 2), breaks = seq(0, 2, 0.5)) + # 纵轴刻度
+  theme_bw() +
+	geom_vline(xintercept = 1, color = "#99919c", linetype = "solid") +  # 新x轴参考线
+	geom_hline(yintercept = 0.5, color = "#99919c", linetype = "solid")+    # 新y轴参考线
+  theme(
+  	axis.line = element_line(linewidth = 0.3),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", linewidth = 0.3),
+    plot.title = element_text(hjust = 0.5, size = 8),
+    axis.title = element_text(size = 8),
+    axis.text = element_text(color = "black", size = 8),  # 所有坐标轴文本统一设置
+    legend.position = "none"
+  )+    #最后添加标签，浮于上方
+	 geom_text_repel(  # 智能标签防重叠
+    aes(label = display_gene),
+    size = 3,
+    box.padding = 0.2,  # 标签与点的间距
+    segment.color = "black",
+    segment.size = 0.2,             # 新增：设置连接线粗细（默认值为0.5，可进一步调小）
+    max.overlaps = 20,
+    fontface = "italic" ) + # 斜体标签
+  coord_flip()  # 坐标轴翻转
+
+graph2ppt(p2,paste("output/sgNTC/0016_tfh_c1_vs_other_neuron_related_genes.pptx", sep=""),width =2, height =3)
+
+}
+
+qsavem(DEG_select_all_merged_df,
+	   DEG_select,
+	   DEG_select_all,
+	   avg_exp,
+	   gsea_results_df,
+	   neuron_related,
+	   c1_markers,
+	  file="object/sgNTC/0016_tfh_c1_vs_other_DEG_all_merged_df.qs")
+
+qload("object/sgNTC/0016_tfh_c1_vs_other_DEG_all_merged_df.qs")
+```
+
+#C1 Neuron and wound healing
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+f='object/sgNTC/tfh_c1_vs_other_GOterm_top20_gsea.Rdata'
+load(file = f)
+if(T){
+	#neuron related
+neuron_related=which(gsea_results[[1]]$ID %in% c("GOBP_CENTRAL_NERVOUS_SYSTEM_DEVELOPMENT",
+				 "GOBP_FOREBRAIN_DEVELOPMENT",
+				 "GOBP_HINDBRAIN_DEVELOPMENT",
+				 "GOBP_METENCEPHALON_DEVELOPMENT",
+				 "GOBP_NEURON_PROJECTION_REGENERATION",
+				 "GOBP_AXON_REGENERATION",
+				 "GOBP_DETECTION_OF_MECHANICAL_STIMULUS_INVOLVED_IN_SENSORY_PERCEPTION",
+				 "GOBP_NEURON_MATURATION"))
+
+#在表达矩阵中筛选并保留目标基因集中的核心基因：
+genes <- unlist(strsplit(gsea_results[[1]]$core_enrichment[neuron_related], "/"))
+if(T){
+gene_anno=read.csv(file = "input/Gene_classification/gene_anno_all.csv")
+
+##提取标准化表达矩阵
+mat=as.data.frame(GetAssayData(cells.cut,layer = 'scale.data'))%>%
+	rownames_to_column(var = "rowname")%>%
+	column_to_rownames(var = "rowname")
+dim(mat);mat[1:10,1:10]
+
+DEG_select_all <- c1_markers[rownames(c1_markers) %in% genes,]%>%
+	arrange(desc(avg_log2FC))%>%
+	rownames_to_column(var = "gene_name")%>%
+  left_join(gene_anno, by = c("gene_name" = "Gene_name"))  %>%
+  mutate(VariableFeatures_3000 = ifelse(gene_name %in% rownames(mat), T, F))%>%
+  select(gene_name,Gene_id,VariableFeatures_3000, everything())
+
+write.csv(DEG_select_all,
+		  file="output/sgNTC/0016_tfh_c1_vs_other_Neuron_all.csv",
+		  na = "",row.names = F)
+}
+
+DEG_select <- c1_markers[rownames(c1_markers) %in% genes,]%>%
+	#filter(p_val<=0.05)%>%
+	top_n(n=40,wt=avg_log2FC)%>% 
+	arrange(desc(avg_log2FC))%>%
+	rownames_to_column(var = "gene_name")
+
+DEG_select$gene_name <- factor(DEG_select$gene_name, 
+                                           levels = DEG_select$gene_name)
+if(T){
+p<-ggplot(DEG_select, aes(gene_name, avg_log2FC)) +
+  geom_col(position = position_dodge(width = 0.5), width = 0.6, linewidth = 0.5, 
+           fill="#65B0C6",colour = 'black') +
+  scale_x_discrete(position = "bottom") +
+	scale_y_continuous(position ="left",expand = c(0,0)) +
+	#scale_y_reverse(position ="left",expand = c(0,0))+
+  labs(x = 'Nerve interaction and regeneration', y = 'FC log2 (C1/other Tfh)') +
+  theme(panel.grid = element_blank(), 
+        axis.line = element_line(colour = "black",size=0.8),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(size=12,color="black",angle = 90,hjust = 1,vjust =0.5,
+                                 face = "italic"),
+        axis.text.y = element_text(size = 12,colour = "black"),
+  	  axis.title.x = element_text(size = 14, hjust = 0.5),  # 调整 x 轴标题位置
+        axis.title.y=element_text(size=14),
+        axis.ticks.length=unit(0.1, "cm"),
+  )+
+  theme(plot.margin = unit(c(0.2,0.2,0.1,0.1),"cm"))
+pdf("output/sgNTC/0016_tfh_c1_vs_other_Neuron.pdf", w=8, h=3.5)
+print(p)
+dev.off()
+}
+}
+```
+
+#C1 Tissue repair and wound healing
+```{r eval=FALSE, include=FALSE}
+if(T){
+woundhealing_related=which(gsea_results[[1]]$ID %in% c(
+	"GOBP_MOLTING_CYCLE", 
+	"GOBP_APPENDAGE_MORPHOGENESIS",
+	"GOBP_ADHERENS_JUNCTION_ORGANIZATION", 
+	"GOBP_ACTIN_MEDIATED_CELL_CONTRACTION"))
+#在表达矩阵中筛选并保留目标基因集中的核心基因：
+genes <- unlist(strsplit(gsea_results[[1]]$core_enrichment[woundhealing_related], "/"))
+
+if(T){
+gene_anno=read.csv(file = "input/Gene_classification/gene_anno_all.csv")
+
+##提取标准化表达矩阵
+mat=as.data.frame(GetAssayData(cells.cut,layer = 'scale.data'))%>%
+	rownames_to_column(var = "rowname")%>%
+	column_to_rownames(var = "rowname")
+dim(mat);mat[1:10,1:10]
+
+DEG_select_all <- c1_markers[rownames(c1_markers) %in% genes,]%>%
+	arrange(desc(avg_log2FC))%>%
+	rownames_to_column(var = "gene_name")%>%
+  left_join(gene_anno, by = c("gene_name" = "Gene_name"))  %>%
+  mutate(VariableFeatures_3000 = ifelse(gene_name %in% rownames(mat), T, F))%>%
+  select(gene_name,Gene_id,VariableFeatures_3000, everything())
+
+write.csv(DEG_select_all,
+		  file="output/sgNTC/0016_tfh_c1_vs_other_wound_healing_all.csv",
+		  na = "",row.names = F)
+}
+DEG_select <- c1_markers[rownames(c1_markers) %in% genes,]%>%
+	#filter(p_val<=0.05)%>%
+	top_n(n=40,wt=avg_log2FC)%>% 
+	arrange(desc(avg_log2FC))%>%
+	rownames_to_column(var = "gene_name")
+
+DEG_select$gene_name <- factor(DEG_select$gene_name, 
+                                           levels = DEG_select$gene_name)
+if(T){
+p<-ggplot(DEG_select, aes(gene_name, avg_log2FC)) +
+  geom_col(position = position_dodge(width = 0.5), width = 0.6, linewidth = 0.5, 
+           fill="#ffd400",colour = 'black') +
+  scale_x_discrete(position = "top") +
+	#scale_y_continuous(position ="left",expand = c(0,0)) +
+	scale_y_reverse(position ="left",expand = c(0,0))+
+  labs(x = 'Tissue repair and wound healing', y = 'FC log2 (C1/other Tfh)') +
+  theme(panel.grid = element_blank(), 
+        axis.line = element_line(colour = "black",size=0.8),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(size=12,color="black",angle = 90, hjust =0, vjust =0.5,
+                                 face = "italic"),
+        axis.text.y = element_text(size = 12,colour = "black"),
+  	  axis.title.x = element_text(size = 14, hjust = 0.5),  # 调整 x 轴标题位置
+        axis.title.y=element_text(size=14),
+        axis.ticks.length=unit(0.1, "cm"),
+  )+
+  theme(plot.margin = unit(c(0.2,0.2,0.1,0.1),"cm"))
+pdf("output/sgNTC/0016_tfh_c1_vs_other_wound_healing.pdf", w=8, h=3.5)
+print(p)
+dev.off()
+}
+}
+```
+
+#C3 Running GSEA
+
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+
+suppressPackageStartupMessages({
+library(clusterProfiler)
+library(tidyverse)
+library(ggplot2)
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+})
+geneList=c3_markers$avg_log2FC
+names(geneList)=rownames(c3_markers)
+geneList=sort(geneList,decreasing = T)
+  #选择gmt文件（MigDB中的全部基因集）
+  d='input/gmt/'
+  gmts <- list.files(d,pattern = 'gmt')
+  gmts
+  #GSEA分析
+if(T){
+  library(GSEABase) 
+  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
+    if(T){
+    gsea_results <- lapply(gmts, function(gmtfile){
+      # gmtfile=gmts[2]
+      geneset <- read.gmt(file.path(d,gmtfile)) 
+      print(paste0('Now process the ',gmtfile))
+      egmt <- GSEA(geneList, TERM2GENE=geneset, 
+      			 eps=0,
+                   pvalueCutoff = 1, verbose=FALSE)
+      return(egmt)
+    })
+    }
+  #提取gsea结果，熟悉这个对象
+  gsea_results_list<- lapply(gsea_results, function(x){
+    cat(paste(dim(x@result)),'\n')
+    x@result
+  })
+  gsea_results_df <- do.call(rbind, gsea_results_list)
+  # gsea_results_df.cutp = gsea_results_df %>%
+  #   filter(abs(NES)>=1 & (p.adjust<0.05))
+ niceTit <- purrr::map_chr(gsea_results_df$Description, 
+                            function(x,termWidth = 600, rmPrefix = TRUE) {
+      tit <- unlist(strsplit(x, split = "_"))
+      if (length(tit) == 1) {
+         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+      }
+      else {
+         if (rmPrefix == TRUE) {
+            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+         else {
+            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+      }
+      # 最后一步，将句子首字母大写
+    niceTit <- stringr::str_to_sentence(niceTit)
+    return(niceTit)
+   })
+ niceTit
+ gsea_results_df$Description=niceTit
+  write.csv(gsea_results_df, 
+            file ="output/sgNTC/0013_tfh_c3_vs_other_gsea.csv")
+  
+   f='object/sgNTC/tfh_c3_vs_other_gsea.Rdata'
+  save(gsea_results,
+       gsea_results_df,
+       file = f)
+  load(file = f)
+}
+```
+
+#C3 creat TOP20 GO term custom gene set
+
+```{r eval=FALSE, include=FALSE}
+suppressPackageStartupMessages({
+	library(clusterProfiler)
+	library(tidyverse)
+	library(ggplot2)
+	library(org.Hs.eg.db)
+	library(org.Mm.eg.db)
+	library(GSEABase)
+})
+
+geneset <- read.gmt(file.path("input/gmt/msigdb.v2023.2.Mm.symbols.gmt"))
+if(T){
+pathways=list()
+target_term <- c("GOBP_TRANSLATION_AT_SYNAPSE",
+				 "GOBP_ATP_SYNTHESIS_COUPLED_ELECTRON_TRANSPORT",
+				 "GOBP_NADH_DEHYDROGENASE_COMPLEX_ASSEMBLY",
+				 "GOBP_RIBOSOMAL_LARGE_SUBUNIT_BIOGENESIS",
+				 "GOBP_CELLULAR_ALDEHYDE_METABOLIC_PROCESS",
+				 "GOBP_HEXOSE_CATABOLIC_PROCESS",
+				 "GOBP_NUCLEOSIDE_MONOPHOSPHATE_BIOSYNTHETIC_PROCESS",
+				 "GOBP_SPLICEOSOMAL_SNRNP_ASSEMBLY",
+				 "GOBP_PROTEIN_TARGETING_TO_MITOCHONDRION",
+				 "GOBP_CYTOCHROME_COMPLEX_ASSEMBLY",
+				 "GOBP_PROTEIN_INSERTION_INTO_MEMBRANE",
+				 "GOBP_TRICARBOXYLIC_ACID_CYCLE",
+				 "GOBP_IRON_SULFUR_CLUSTER_ASSEMBLY",
+				 "GOBP_INNER_MITOCHONDRIAL_MEMBRANE_ORGANIZATION",
+				 "GOBP_ANTIMICROBIAL_HUMORAL_RESPONSE",
+				 "GOBP_REGULATION_OF_AEROBIC_RESPIRATION",
+				 "GOBP_HEME_METABOLIC_PROCESS",
+				 "GOBP_CELL_REDOX_HOMEOSTASIS",
+				 "GOBP_REGULATION_OF_INFLAMMATORY_RESPONSE_TO_ANTIGENIC_STIMULUS",
+				 "GOBP_REGULATION_OF_CELLULAR_RESPIRATION") #20
+for(i in target_term) {
+	pathways[[i]] <- geneset[geneset$term == i, "gene"]
+	# 展平基因列表
+	pathways[[i]] <- unlist(pathways[[i]])
+}
+
+# 创建一个 GMT 文件
+dir.create("input/gmt/GO_term_c3_top")
+gmt_file_path <- "input/gmt/GO_term_c3_top/GO_term_top_pathways_sgNTC_c3_Top20.gmt"
+
+# 构造数据帧
+data_rows <- lapply(names(pathways), function(name) {
+  genes <- pathways[[name]]
+  data.frame(
+    GeneSetName = name,
+    GeneSetDescription = name,
+    gene_names = genes,
+    stringsAsFactors = FALSE)
+})
+
+# 合并所有行
+data_df <- do.call(rbind, data_rows)
+
+# 写入 GMT 文件
+write.table(data_df,
+            file = gmt_file_path,
+            row.names = FALSE,
+            col.names = FALSE,
+            sep = "\t",
+            quote = FALSE
+)
+}
+```
+
+#C3 Running GSEA Based on TOP20 GO Terms
+
+```{r eval=FALSE, include=FALSE}
+rm(list=ls());gc()
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+geneList=c3_markers$avg_log2FC
+names(geneList)=rownames(c3_markers)
+geneList=sort(geneList,decreasing = T)
+  #选择gmt文件（MigDB中的全部基因集）
+  d='input/gmt/GO_term_c3_top/'
+  gmts <- list.files(d,pattern = 'GO_term_top_pathways_sgNTC_c3_Top20.gmt')
+  gmts
+  #GSEA分析
+if(T){
+  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
+    if(T){
+    gsea_results <- lapply(gmts, function(gmtfile){
+      # gmtfile=gmts[2]
+      geneset <- read.gmt(file.path(d,gmtfile)) 
+      print(paste0('Now process the ',gmtfile))
+      egmt <- GSEA(geneList, TERM2GENE=geneset, 
+      			 eps=0,
+                   pvalueCutoff = 1, verbose=FALSE)
+      return(egmt)
+    })
+    }
+  #提取gsea结果，熟悉这个对象
+  gsea_results_list<- lapply(gsea_results, function(x){
+    cat(paste(dim(x@result)),'\n')
+    x@result
+  })
+  gsea_results_df <- do.call(rbind, gsea_results_list)
+  # gsea_results_df.cutp = gsea_results_df %>%
+  #   filter(abs(NES)>=1 & (p.adjust<0.05))
+ niceTit <- purrr::map_chr(unique(gsea_results_df$Description), 
+                            function(x,termWidth = 600, rmPrefix = TRUE) {
+      tit <- unlist(strsplit(x, split = "_"))
+      if (length(tit) == 1) {
+         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+      }
+      else {
+         if (rmPrefix == TRUE) {
+            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+         else {
+            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+      }
+      # 最后一步，将句子首字母大写
+    niceTit <- stringr::str_to_sentence(niceTit)
+    return(niceTit)
+   })
+ gsea_results_df$Description=niceTit
+  write.csv(gsea_results_df, 
+            file ="output/sgNTC/0014_tfh_c3_vs_other_GOterm_top20_gsea.csv")
+  
+   f='object/sgNTC/tfh_c3_vs_other_GOterm_top20_gsea.Rdata'
+  save(gsea_results,
+       gsea_results_df,
+       file = f)
+  load(file = f)
+}
+```
+
+#C3 GOterm_top20_gsea visualization
+
+```{r eval=FALSE, include=FALSE}
+rm(list=ls());gc()
+f='object/sgNTC/tfh_c3_vs_other_GOterm_top20_gsea.Rdata'
+load(file = f)
+
+gsea_results_df=gsea_results_df%>% 
+	arrange(pvalue)
+gsea_results_df$Description <- factor(gsea_results_df$Description, 
+                                           levels = gsea_results_df$Description)
+#1:Nerve interaction and regeneration
+#2:Tissue repair and wound healing
+#3:other
+gsea_results_df$path_group=c(1,3,3,3,
+							 3,3,3,3,
+							 3,3,3,3,
+							 3,3,3,3,
+							 3,3,3,3)
+gsea_results_df$path_group <- factor(gsea_results_df$path_group, 
+                                           levels = c(1,3))
+if(T){
+p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
+  geom_bar(stat = "identity", width = 0.7, colour = "black")+
+  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
+  theme_classic()+
+  theme(axis.text.y = element_text(colour = 'black', size = 14),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_text(colour = 'black', size = 14),
+        axis.line = element_line(colour = 'black', linewidth =0.5),
+        axis.text.x = element_text(colour = 'black', size = 14),
+        axis.ticks.x = element_line(colour = 'black'),
+        axis.title.x = element_text(colour = 'black', size = 14),
+  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)),  # 左对齐并增加下边距
+  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
+        legend.position = "none")+ 
+  scale_x_continuous(expand = c(0,0))+
+  scale_fill_manual(values = c("#65B0C6","white"))+
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  labs(title = "GO terms enriched in c3 vs other Tfh",
+       y=c(""),
+  	 x=c("-log10(p-value)"))
+pdf("output/sgNTC/0015_tfh_c3_vs_other_GOterm_top20_gsea.pdf", w=8, h=7)
+print(p)
+dev.off()
+}
+```
+
+#C4 Running GSEA
+
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+
+suppressPackageStartupMessages({
+library(clusterProfiler)
+library(tidyverse)
+library(ggplot2)
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+})
+geneList=c4_markers$avg_log2FC
+names(geneList)=rownames(c4_markers)
+geneList=sort(geneList,decreasing = T)
+  #选择gmt文件（MigDB中的全部基因集）
+  d='input/gmt/'
+  gmts <- list.files(d,pattern = 'gmt')
+  gmts
+  #GSEA分析
+if(T){
+  library(GSEABase) 
+  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
+    if(T){
+    gsea_results <- lapply(gmts, function(gmtfile){
+      # gmtfile=gmts[2]
+      geneset <- read.gmt(file.path(d,gmtfile)) 
+      print(paste0('Now process the ',gmtfile))
+      egmt <- GSEA(geneList, TERM2GENE=geneset, 
+      			 eps=0,
+                   pvalueCutoff = 1, verbose=FALSE)
+      return(egmt)
+    })
+    }
+  #提取gsea结果，熟悉这个对象
+  gsea_results_list<- lapply(gsea_results, function(x){
+    cat(paste(dim(x@result)),'\n')
+    x@result
+  })
+  gsea_results_df <- do.call(rbind, gsea_results_list)
+  # gsea_results_df.cutp = gsea_results_df %>%
+  #   filter(abs(NES)>=1 & (p.adjust<0.05))
+ niceTit <- purrr::map_chr(gsea_results_df$Description, 
+                            function(x,termWidth = 600, rmPrefix = TRUE) {
+      tit <- unlist(strsplit(x, split = "_"))
+      if (length(tit) == 1) {
+         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+      }
+      else {
+         if (rmPrefix == TRUE) {
+            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+         else {
+            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+      }
+      # 最后一步，将句子首字母大写
+    niceTit <- stringr::str_to_sentence(niceTit)
+    return(niceTit)
+   })
+ niceTit
+ gsea_results_df$Description=niceTit
+  write.csv(gsea_results_df, 
+            file ="output/sgNTC/0013_tfh_c4_vs_other_gsea.csv")
+  
+   f='object/sgNTC/tfh_c4_vs_other_gsea.Rdata'
+  save(gsea_results,
+       gsea_results_df,
+       file = f)
+  load(file = f)
+}
+```
+
+#C4 creat TOP20 GO term custom gene set
+
+```{r eval=FALSE, include=FALSE}
+suppressPackageStartupMessages({
+	library(clusterProfiler)
+	library(tidyverse)
+	library(ggplot2)
+	library(org.Hs.eg.db)
+	library(org.Mm.eg.db)
+	library(GSEABase)
+})
+
+geneset <- read.gmt(file.path("input/gmt/msigdb.v2023.2.Mm.symbols.gmt"))
+if(T){
+pathways=list()
+target_term <- c("GOBP_LEUKOCYTE_MEDIATED_CYTOTOXICITY",
+"GOBP_CELL_KILLING",
+"GOBP_NATURAL_KILLER_CELL_ACTIVATION",
+"GOBP_RESPONSE_TO_TUMOR_CELL",
+"GOBP_INFLAMMATORY_CELL_APOPTOTIC_PROCESS",
+"GOBP_CYTOCHROME_COMPLEX_ASSEMBLY",
+"GOBP_GRANULOCYTE_ACTIVATION",
+"GOBP_APOPTOTIC_CELL_CLEARANCE",
+"GOBP_RESPONSE_TO_CHEMOKINE",
+"GOBP_MONOAMINE_TRANSPORT",
+"GOBP_INTEGRIN_MEDIATED_SIGNALING_PATHWAY",
+"GOBP_CELLULAR_EXTRAVASATION",
+"GOBP_REGULATION_OF_SMOOTH_MUSCLE_CONTRACTION",
+"GOBP_PLASMA_MEMBRANE_REPAIR",
+"GOBP_CYTOKINETIC_PROCESS",
+"GOBP_MITOCHONDRIAL_TRANSLATION",
+"GOBP_CELLULAR_RESPONSE_TO_TYPE_II_INTERFERON",
+"GOBP_PROTEIN_LOCALIZATION_TO_CELL_SURFACE",
+"GOBP_MITOTIC_CYTOKINESIS",
+"GOBP_ADAPTIVE_IMMUNE_RESPONSE") #20
+for(i in target_term) {
+	pathways[[i]] <- geneset[geneset$term == i, "gene"]
+	# 展平基因列表
+	pathways[[i]] <- unlist(pathways[[i]])
+}
+
+# 创建一个 GMT 文件
+dir.create("input/gmt/GO_term_c4_top")
+gmt_file_path <- "input/gmt/GO_term_c4_top/GO_term_top_pathways_sgNTC_c4_Top20.gmt"
+
+# 构造数据帧
+data_rows <- lapply(names(pathways), function(name) {
+  genes <- pathways[[name]]
+  data.frame(
+    GeneSetName = name,
+    GeneSetDescription = name,
+    gene_names = genes,
+    stringsAsFactors = FALSE)
+})
+
+# 合并所有行
+data_df <- do.call(rbind, data_rows)
+
+# 写入 GMT 文件
+write.table(data_df,
+            file = gmt_file_path,
+            row.names = FALSE,
+            col.names = FALSE,
+            sep = "\t",
+            quote = FALSE
+)
+}
+```
+
+#C4 Running GSEA Based on TOP20 GO Terms
+
+```{r eval=FALSE, include=FALSE}
+rm(list=ls());gc()
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+geneList=c4_markers$avg_log2FC
+names(geneList)=rownames(c4_markers)
+geneList=sort(geneList,decreasing = T)
+  #选择gmt文件（MigDB中的全部基因集）
+  d='input/gmt/GO_term_c4_top/'
+  gmts <- list.files(d,pattern = 'GO_term_top_pathways_sgNTC_c4_Top20.gmt')
+  gmts
+  #GSEA分析
+if(T){
+  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
+    if(T){
+    gsea_results <- lapply(gmts, function(gmtfile){
+      # gmtfile=gmts[2]
+      geneset <- read.gmt(file.path(d,gmtfile)) 
+      print(paste0('Now process the ',gmtfile))
+      egmt <- GSEA(geneList, TERM2GENE=geneset, 
+      			 eps=0,
+                   pvalueCutoff = 1, verbose=FALSE)
+      return(egmt)
+    })
+    }
+  #提取gsea结果，熟悉这个对象
+  gsea_results_list<- lapply(gsea_results, function(x){
+    cat(paste(dim(x@result)),'\n')
+    x@result
+  })
+  gsea_results_df <- do.call(rbind, gsea_results_list)
+  # gsea_results_df.cutp = gsea_results_df %>%
+  #   filter(abs(NES)>=1 & (p.adjust<0.05))
+ niceTit <- purrr::map_chr(unique(gsea_results_df$Description), 
+                            function(x,termWidth = 600, rmPrefix = TRUE) {
+      tit <- unlist(strsplit(x, split = "_"))
+      if (length(tit) == 1) {
+         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+      }
+      else {
+         if (rmPrefix == TRUE) {
+            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+         else {
+            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+      }
+      # 最后一步，将句子首字母大写
+    niceTit <- stringr::str_to_sentence(niceTit)
+    return(niceTit)
+   })
+ gsea_results_df$Description=niceTit
+  write.csv(gsea_results_df, 
+            file ="output/sgNTC/0014_tfh_c4_vs_other_GOterm_top20_gsea.csv")
+  
+   f='object/sgNTC/tfh_c4_vs_other_GOterm_top20_gsea.Rdata'
+  save(gsea_results,
+       gsea_results_df,
+       file = f)
+  load(file = f)
+}
+```
+
+#C4 GOterm_top20_gsea visualization
+
+```{r eval=FALSE, include=FALSE}
+rm(list=ls());gc()
+f='object/sgNTC/tfh_c4_vs_other_GOterm_top20_gsea.Rdata'
+load(file = f)
+
+gsea_results_df=gsea_results_df%>% 
+	arrange(pvalue)
+gsea_results_df$Description <- factor(gsea_results_df$Description, 
+                                           levels = gsea_results_df$Description)
+#1:Nerve interaction and regeneration
+#2:Tissue repair and wound healing
+#3:other
+gsea_results_df$path_group=c(3,3,3,3,
+							 3,3,3,3,
+							 3,3,3,3,
+							 3,3,3,3,
+							 3,3,3,3)
+gsea_results_df$path_group <- factor(gsea_results_df$path_group, 
+                                           levels = c(3))
+if(T){
+p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
+  geom_bar(stat = "identity", width = 0.7, colour = "black")+
+  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
+  theme_classic()+
+  theme(axis.text.y = element_text(colour = 'black', size = 14),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_text(colour = 'black', size = 14),
+        axis.line = element_line(colour = 'black', linewidth =0.5),
+        axis.text.x = element_text(colour = 'black', size = 14),
+        axis.ticks.x = element_line(colour = 'black'),
+        axis.title.x = element_text(colour = 'black', size = 14),
+  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)),  # 左对齐并增加下边距
+  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
+        legend.position = "none")+ 
+  scale_x_continuous(expand = c(0,0))+
+  scale_fill_manual(values = c("white"))+
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  labs(title = "GO terms enriched in c4 vs other Tfh",
+       y=c(""),
+  	 x=c("-log10(p-value)"))
+pdf("output/sgNTC/0015_tfh_c4_vs_other_GOterm_top20_gsea.pdf", w=7, h=7)
+print(p)
+dev.off()
+}
+```
+
+#C5 Running GSEA
+
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+
+suppressPackageStartupMessages({
+library(clusterProfiler)
+library(tidyverse)
+library(ggplot2)
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+})
+geneList=c5_markers$avg_log2FC
+names(geneList)=rownames(c5_markers)
+geneList=sort(geneList,decreasing = T)
+  #选择gmt文件（MigDB中的全部基因集）
+  d='input/gmt/'
+  gmts <- list.files(d,pattern = 'gmt')
+  gmts
+  #GSEA分析
+if(T){
+  library(GSEABase) 
+  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
+    if(T){
+    gsea_results <- lapply(gmts, function(gmtfile){
+      # gmtfile=gmts[2]
+      geneset <- read.gmt(file.path(d,gmtfile)) 
+      print(paste0('Now process the ',gmtfile))
+      egmt <- GSEA(geneList, TERM2GENE=geneset, 
+      			 eps=0,
+                   pvalueCutoff = 1, verbose=FALSE)
+      return(egmt)
+    })
+    }
+  #提取gsea结果，熟悉这个对象
+  gsea_results_list<- lapply(gsea_results, function(x){
+    cat(paste(dim(x@result)),'\n')
+    x@result
+  })
+  gsea_results_df <- do.call(rbind, gsea_results_list)
+  # gsea_results_df.cutp = gsea_results_df %>%
+  #   filter(abs(NES)>=1 & (p.adjust<0.05))
+ niceTit <- purrr::map_chr(gsea_results_df$Description, 
+                            function(x,termWidth = 600, rmPrefix = TRUE) {
+      tit <- unlist(strsplit(x, split = "_"))
+      if (length(tit) == 1) {
+         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+      }
+      else {
+         if (rmPrefix == TRUE) {
+            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+         else {
+            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+      }
+      # 最后一步，将句子首字母大写
+    niceTit <- stringr::str_to_sentence(niceTit)
+    return(niceTit)
+   })
+ niceTit
+ gsea_results_df$Description=niceTit
+  write.csv(gsea_results_df, 
+            file ="output/sgNTC/0013_tfh_c5_vs_other_gsea.csv")
+  
+   f='object/sgNTC/tfh_c5_vs_other_gsea.Rdata'
+  save(gsea_results,
+       gsea_results_df,
+       file = f)
+  load(file = f)
+}
+```
+
+#C5 creat TOP20 GO term custom gene set
+
+```{r eval=FALSE, include=FALSE}
+suppressPackageStartupMessages({
+	library(clusterProfiler)
+	library(tidyverse)
+	library(ggplot2)
+	library(org.Hs.eg.db)
+	library(org.Mm.eg.db)
+	library(GSEABase)
+})
+
+geneset <- read.gmt(file.path("input/gmt/msigdb.v2023.2.Mm.symbols.gmt"))
+if(T){
+pathways=list()
+target_term <- c("GOBP_NEUTROPHIL_HOMEOSTASIS",
+"GOBP_LEUKOCYTE_MEDIATED_CYTOTOXICITY",
+"GOBP_INTEGRIN_MEDIATED_SIGNALING_PATHWAY",
+"GOBP_REGULATION_OF_VASOCONSTRICTION",
+"GOBP_INFLAMMATORY_CELL_APOPTOTIC_PROCESS",
+"GOBP_CELL_KILLING",
+"GOBP_REGULATION_OF_SMOOTH_MUSCLE_CONTRACTION",
+"GOBP_CELLULAR_EXTRAVASATION",
+"GOBP_MEMBRANE_FISSION",
+"GOBP_RESPONSE_TO_INTERFERON_BETA",
+"GOBP_REGULATION_OF_NATURAL_KILLER_CELL_ACTIVATION",
+"GOBP_GLIAL_CELL_MIGRATION",
+"GOBP_VESICLE_DOCKING",
+"GOBP_SECRETORY_GRANULE_ORGANIZATION",
+"GOBP_RESPONSE_TO_CHEMOKINE",
+"GOBP_TOLERANCE_INDUCTION",
+"GOBP_RESPONSE_TO_INTERFERON_ALPHA",
+"GOBP_CELL_ADHESION_MEDIATED_BY_INTEGRIN",
+"GOBP_REGULATION_OF_NEURAL_PRECURSOR_CELL_PROLIFERATION",
+"GOBP_G_PROTEIN_COUPLED_RECEPTOR_SIGNALING_PATHWAY") #20
+for(i in target_term) {
+	pathways[[i]] <- geneset[geneset$term == i, "gene"]
+	# 展平基因列表
+	pathways[[i]] <- unlist(pathways[[i]])
+}
+
+# 创建一个 GMT 文件
+dir.create("input/gmt/GO_term_c5_top")
+gmt_file_path <- "input/gmt/GO_term_c5_top/GO_term_top_pathways_sgNTC_c5_Top20.gmt"
+
+# 构造数据帧
+data_rows <- lapply(names(pathways), function(name) {
+  genes <- pathways[[name]]
+  data.frame(
+    GeneSetName = name,
+    GeneSetDescription = name,
+    gene_names = genes,
+    stringsAsFactors = FALSE)
+})
+
+# 合并所有行
+data_df <- do.call(rbind, data_rows)
+
+# 写入 GMT 文件
+write.table(data_df,
+            file = gmt_file_path,
+            row.names = FALSE,
+            col.names = FALSE,
+            sep = "\t",
+            quote = FALSE
+)
+}
+```
+
+#C5 Running GSEA Based on TOP20 GO Terms
+
+```{r eval=FALSE, include=FALSE}
+rm(list=ls());gc()
+load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
+geneList=c5_markers$avg_log2FC
+names(geneList)=rownames(c5_markers)
+geneList=sort(geneList,decreasing = T)
+  #选择gmt文件（MigDB中的全部基因集）
+  d='input/gmt/GO_term_c5_top/'
+  gmts <- list.files(d,pattern = 'GO_term_top_pathways_sgNTC_c5_Top20.gmt')
+  gmts
+  #GSEA分析
+if(T){
+  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
+    if(T){
+    gsea_results <- lapply(gmts, function(gmtfile){
+      # gmtfile=gmts[2]
+      geneset <- read.gmt(file.path(d,gmtfile)) 
+      print(paste0('Now process the ',gmtfile))
+      egmt <- GSEA(geneList, TERM2GENE=geneset, 
+      			 eps=0,
+                   pvalueCutoff = 1, verbose=FALSE)
+      return(egmt)
+    })
+    }
+  #提取gsea结果，熟悉这个对象
+  gsea_results_list<- lapply(gsea_results, function(x){
+    cat(paste(dim(x@result)),'\n')
+    x@result
+  })
+  gsea_results_df <- do.call(rbind, gsea_results_list)
+  # gsea_results_df.cutp = gsea_results_df %>%
+  #   filter(abs(NES)>=1 & (p.adjust<0.05))
+ niceTit <- purrr::map_chr(unique(gsea_results_df$Description), 
+                            function(x,termWidth = 600, rmPrefix = TRUE) {
+      tit <- unlist(strsplit(x, split = "_"))
+      if (length(tit) == 1) {
+         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+      }
+      else {
+         if (rmPrefix == TRUE) {
+            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+         else {
+            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
+               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
+         }
+      }
+      # 最后一步，将句子首字母大写
+    niceTit <- stringr::str_to_sentence(niceTit)
+    return(niceTit)
+   })
+ gsea_results_df$Description=niceTit
+  write.csv(gsea_results_df, 
+            file ="output/sgNTC/0014_tfh_c5_vs_other_GOterm_top20_gsea.csv")
+  
+   f='object/sgNTC/tfh_c5_vs_other_GOterm_top20_gsea.Rdata'
+  save(gsea_results,
+       gsea_results_df,
+       file = f)
+  load(file = f)
+}
+```
+
+#C5 GOterm_top20_gsea visualization
+
+```{r eval=FALSE, include=FALSE}
+rm(list=ls());gc()
+f='object/sgNTC/tfh_c5_vs_other_GOterm_top20_gsea.Rdata'
+load(file = f)
+
+gsea_results_df=gsea_results_df%>% 
+	arrange(pvalue)
+gsea_results_df$Description <- factor(gsea_results_df$Description, 
+                                           levels = gsea_results_df$Description)
+#1:Nerve interaction and regeneration
+#2:Tissue repair and wound healing
+#3:other
+gsea_results_df$path_group=c(3,3,3,3,
+							 3,3,3,3,
+							 3,1,3,3,
+							 3,3,3,3,
+							 3,1,3,3)
+gsea_results_df$path_group <- factor(gsea_results_df$path_group, 
+                                           levels = c(1,3))
+if(T){
+p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
+  geom_bar(stat = "identity", width = 0.7, colour = "black")+
+  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
+  theme_classic()+
+  theme(axis.text.y = element_text(colour = 'black', size = 14),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_text(colour = 'black', size = 14),
+        axis.line = element_line(colour = 'black', linewidth =0.5),
+        axis.text.x = element_text(colour = 'black', size = 14),
+        axis.ticks.x = element_line(colour = 'black'),
+        axis.title.x = element_text(colour = 'black', size = 14),
+  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)),  # 左对齐并增加下边距
+  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
+        legend.position = "none")+ 
+  scale_x_continuous(expand = c(0,0))+
+  scale_fill_manual(values = c("#65B0C6","white"))+
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  labs(title = "GO terms enriched in c5 vs other Tfh",
+       y=c(""),
+  	 x=c("-log10(p-value)"))
+pdf("output/sgNTC/0015_tfh_c5_vs_other_GOterm_top20_gsea.pdf", w=7, h=7)
+print(p)
+dev.off()
+}
+```
+
+#ligand-receptor analysis全图
+```{r eval=FALSE, include=FALSE}
+#devtools::install_github("jinworks/CellChat")
+suppressPackageStartupMessages({
+	library(CellChat)
+	library(patchwork)}
+	)
+
+load(file = "J:/00.keti/000_FGT/000_RNAseq/RNA-seq_LCMV_DRG_5v5_20241217/object/001_DRG_LCMV_receptor_expression.Rdata")
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+
+
+CellChatDB <- CellChatDB.mouse 
+# use CellChatDB.human/CellChatDB.mouse if running on human/mouse data
+showDatabaseCategory(CellChatDB)
+
+CellChatDB_df=as.data.frame(CellChatDB$interaction)
+write.csv(CellChatDB_df, 
+            file ="output/sgNTC/0017_CellChatDB_ligand_receptor.csv")
+
+row.names(df_scaled)
+names(CellChatDB_df)
+LCMV_DRG_receptor=CellChatDB_df%>%
+	dplyr::filter(grepl(paste(row.names(df_scaled), collapse = "|"), 
+				 interaction_name, ignore.case = TRUE))
+
+filter01 <- sapply(LCMV_DRG_receptor$ligand, function(lig) {
+  split_parts <- unlist(strsplit(toupper(lig), "_"))
+  any(split_parts %in% toupper(row.names(df_scaled)))
+})
+filter02 <- sapply(LCMV_DRG_receptor$receptor, function(lig) {
+  split_parts <- unlist(strsplit(toupper(lig), "_"))
+  any(split_parts %in% toupper(row.names(df_scaled)))
+})
+
+gene_name=unique(stringr::str_to_sentence(unlist(strsplit(c(
+	LCMV_DRG_receptor$receptor[filter01],
+	LCMV_DRG_receptor$ligand[filter02]), "_"))))
+
+gene_name1=gene_name[gene_name %in% rownames(cells.cut)]
+#gene_name1[c(45,46)]=c("Il12a","Il23a")
+if(T){
+p_dot_lig = DotPlot(cells.cut,
+					features = gene_name1,
+					group.by = 'assign_cluster',
+					 cols = c("#328ca9", "#F60000FF"))+
+  RotatedAxis()+NoLegend()
+pdf("output/sgNTC/0017_tfh_DRG_related_ligand_receptor.pdf", w=20, h=5)
+print(p_dot_lig)
+dev.off()
+}
+
+if(T){
+dat_lig = p_dot_lig$data;head(dat_lig)
+ord_lig = dat_lig %>%  pull(features.plot) %>% levels()
+
+dat_lig1 =dat_lig %>% 
+  mutate(lig_type = case_when(features.plot== "Btla" ~'type1',
+                              features.plot== "Icam1" ~'type2',
+                              features.plot== "Itgb2" ~'type3',
+  							features.plot== "Itgal" ~'type4',
+  							features.plot== "Il21" ~'type5',
+  							features.plot== "Itgb1" ~'type6',
+  							features.plot== "Cd40lg" ~'type7',
+                              TRUE ~'none'))
+
+head(dat_lig1)
+pal_use = pal_aaas()(7)
+se_lig = data.frame(lig = c('Btla','Icam1','Itgb2','Itgal','Il21',"Itgb1","Cd40lg")) %>% 
+  mutate(colo =pal_use[1:nrow(.)])
+
+df_ord_lig = data.frame(lig = ord_lig) %>% 
+  left_join(se_lig,by='lig') %>% 
+  mutate(colo = ifelse(is.na(colo),'black',colo)) %>% 
+  mutate(coordy = 1:nrow(.)) %>% 
+  mutate(end_type = c(rep(Inf,19),'c4',
+                      rep(Inf,5),'c5',
+  					rep(Inf,40),'c1',
+  					rep(Inf,10),'c1',
+  					rep(Inf,5),'c1',
+  					rep(Inf,12),'c2',
+  					rep(Inf,9),'c1',
+  					rep(Inf,7)))
+
+df_map = se_lig %>% 
+  left_join(df_ord_lig %>% 
+              dplyr::select(c('lig','coordy')),by='lig') %>% 
+  dplyr::select(-colo)
+
+coldf_ligtype=data.frame(group=unique(dat_lig1$lig_type)[order(unique(dat_lig1$lig_type))]) %>% 
+  mutate(mycol=c('white',pal_use))
+
+scale_color_ligtype<- function(...){ggplot2:::manual_scale('color',
+                                                           values = setNames(coldf_ligtype$mycol, coldf_ligtype$group),...)}
+
+names(dat_lig1)
+
+if(T){
+p3 = ggplot(dat_lig1,aes(id,features.plot,fill = avg.exp.scaled,size =pct.exp))+
+  annotate("segment", x = -Inf, xend = df_ord_lig$end_type[20], y = df_ord_lig$lig[20], yend = df_ord_lig$lig[20],
+           colour = df_ord_lig$colo[20],lwd=1)+
+  annotate("segment", x = -Inf, xend = df_ord_lig$end_type[26], y = df_ord_lig$lig[26], yend = df_ord_lig$lig[26],
+           colour = df_ord_lig$colo[26],lwd=1)+
+  annotate("segment", x = -Inf, xend = df_ord_lig$end_type[67], y = df_ord_lig$lig[67], yend = df_ord_lig$lig[67],
+           colour = df_ord_lig$colo[67],lwd=1)+
+	annotate("segment", x = -Inf, xend = df_ord_lig$end_type[78], y = df_ord_lig$lig[78], yend = df_ord_lig$lig[78],
+           colour = df_ord_lig$colo[78],lwd=1)+
+	annotate("segment", x = -Inf, xend = df_ord_lig$end_type[84], y = df_ord_lig$lig[84], yend = df_ord_lig$lig[84],
+           colour = df_ord_lig$colo[84],lwd=1)+
+	annotate("segment", x = -Inf, xend = df_ord_lig$end_type[97], y = df_ord_lig$lig[97], yend = df_ord_lig$lig[97],
+           colour = df_ord_lig$colo[97],lwd=1)+
+	annotate("segment", x = -Inf, xend = df_ord_lig$end_type[107], y = df_ord_lig$lig[107], yend = df_ord_lig$lig[107],
+           colour = df_ord_lig$colo[107],lwd=1)+
+
+  annotate("segment", x ='c4', xend = 'c4', y = -Inf, yend = df_ord_lig$lig[20],
+           colour = df_ord_lig$colo[20],lwd=1)+
+	annotate("segment", x ='c5', xend = 'c5', y = -Inf, yend = df_ord_lig$lig[26],
+           colour = df_ord_lig$colo[26],lwd=1)+
+	annotate("segment", x ='c1', xend = 'c1', y = -Inf, yend = df_ord_lig$lig[67],
+           colour = df_ord_lig$colo[67],lwd=1)+
+	annotate("segment", x ='c1', xend = 'c1', y = -Inf, yend = df_ord_lig$lig[78],
+           colour = df_ord_lig$colo[78],lwd=1)+
+	annotate("segment", x ='c1', xend = 'c1', y = -Inf, yend = df_ord_lig$lig[84],
+           colour = df_ord_lig$colo[84],lwd=1)+
+	annotate("segment", x ='c2', xend = 'c2', y = -Inf, yend = df_ord_lig$lig[97],
+           colour = df_ord_lig$colo[97],lwd=1)+
+	annotate("segment", x ='c1', xend = 'c1', y = -Inf, yend = df_ord_lig$lig[107],
+           colour = df_ord_lig$colo[107],lwd=1)+
+	
+  geom_point(shape=21,aes(color=lig_type),stroke=1)+
+  scale_color_ligtype(guide='none')+
+  theme_test(base_size = 12)+
+  scale_size(range = c(0,5))+
+  labs(x=NULL,y=NULL,size = 'Percent of\nexpression',fill = 'Ligand/Receptor\nexpression')+
+  theme(legend.position = 'top',
+  	  legend.key.size= unit(8, 'pt'),
+  	  legend.text = element_text(size = 10),
+  	  legend.title = element_text(size = 12))+
+  scale_fill_gradientn(colours = c('grey','black'))+
+	 scale_x_discrete(position = "top")+
+  theme(axis.text.x = element_text(size = 15,angle = 90,hjust = 1,vjust = 0.5))+
+  theme(axis.text.y = element_text(face = "italic",size = 15,color =df_ord_lig$colo))+
+  theme(plot.margin = margin(5,5,5,5))
+
+pdf("output/sgNTC/0017_tfh_DRG_related_ligand_receptor_display.pdf", w=6, h=20)
+print(p3)
+dev.off()
+}
+}
+save(gene_name,
+	 gene_name1,
+	 CellChatDB_df,
+	 LCMV_DRG_receptor,
+	 p_dot_lig,
+	 dat_lig1,
+	 df_ord_lig,
+       file = "object/sgNTC/0017_tfh_DRG_related_ligand_receptor.Rdata")
+
+load(file = "object/sgNTC/0017_tfh_DRG_related_ligand_receptor.Rdata")
+```
+
+#ligand-receptor analysis小图展示图
+```{r eval=FALSE, include=FALSE}
+suppressPackageStartupMessages({
+	library(data.table)
+	library(dplyr)
+	library(gridExtra)
+	library(grid)
+	library(ggrepel)
+	library(readr)
+	library(ggplot2)
+	library(ggpubr)
+	library(ggraph)
+	library(igraph)
+	library(tidyverse)
+	library(RColorBrewer)
+	library(rstatix)
+	library(grDevices)
+	library(circlize)
+})
+
+load(file = "object/sgNTC/0017_tfh_DRG_related_ligand_receptor.Rdata")
+gene_name1
+
+small_legend <- function(fontsize = 5, keysize = .1, marginsize = c(-.1, 0, 0, 0), ...) {    
+	small_legend_theme <- theme(legend.title = element_text(size = fontsize), 
+								legend.text = element_text(size = fontsize),
+								legend.key.size = unit(keysize, "lines"),
+								legend.margin = margin(marginsize[1], 
+													   marginsize[2], 
+													   marginsize[3], 
+													   marginsize[4], 
+													   unit = "cm"),
+								...
+								)    
+	return(small_legend_theme)
+}
+
+colorF <- c("#FDB462","#87638F", "#84cbda","#FB8072","#8DD3C7", "#BEBADA", "#80B1D3",
+			 "#80B1D3", "#ed995a", "#FB8072", "#f3c89d", "#8cc598", "#3d8ea9")
+
+if(T){
+df=data.frame(
+	"source"=c("DRG_neurons","DRG_neurons","Tfh_c2","Tfh_c2",
+			   "Tfh_c1","Tfh_c1","Tfh_c1","Tfh_c2",
+			   "DRG_neurons","DRG_neurons","DRG_neurons"),
+	"target"=c("Tfh_c1","Tfh_c5","DRG_neurons","DRG_neurons",
+			   "DRG_neurons","DRG_neurons","DRG_neurons","DRG_neurons",
+			   "Tfh_c4","Tfh_c5","Tfh_c4"),
+	"ligand"=c("Vcam1","Vcam1","Icam1","Icam1",
+			   "Btla","Cd40lg","Il21","Il21",
+			   "Icam1","Icam1","Icam1"),
+	"receptor"=c("Itgb1","Itgb1","Itgb2","Itgal",
+				 "Tnfrsf14","Itgb2","Il21r","Il21r",
+				 "Itgb2","Itgal","Itgal"),
+  stringsAsFactors = FALSE # 确保初始时不自动转换为因子
+)
+
+# 将指定的列转换为因子
+df$source <- factor(df$source)
+df$target <- factor(df$target)
+df$ligand <- factor(df$ligand)
+df$receptor <- factor(df$receptor)
+}
+
+if(T){
+plotData <- df %>%
+    dplyr::arrange(target, ligand, receptor)
+color_use <- c("#3d8ea9","#ec5e6c","#39268f","#f39139","#91c678","#87638F")
+
+sep <- ">@<"
+vertices <- data.frame(name = c("root", unique(plotData$source), unique(plotData$target)), 
+					   type = NA, celltype = NA, label = NA)
+for (i in c(unique(plotData$source))) {
+    vertices <- rbind(vertices, data.frame(name = paste0(i, sep, "ligand"), 
+    									   type = NA, celltype = i, label = NA))
+}
+for (i in c(unique(plotData$target))) {
+    vertices <- rbind(vertices, data.frame(name = paste0(i, sep, "receptor"), type = NA, celltype = i, label = NA))
+}
+vertices2 <- data.frame()
+for (i in seq_len(nrow(plotData))) {
+    vertices2 <- rbind(vertices2, data.frame(
+        name = paste0(plotData$source[i], sep, plotData$ligand[i]),
+        type = "ligand", celltype = plotData$source[i], label = plotData$ligand[i]
+    ))
+}
+for (i in seq_len(nrow(plotData))) {
+    vertices2 <- rbind(vertices2, data.frame(
+        name = paste0(plotData$target[i], sep, plotData$receptor[i]),
+        type = "receptor", celltype = plotData$target[i], label = plotData$receptor[i]
+    ))
+}
+vertices2 <- vertices2 %>% dplyr::arrange(celltype)
+vertices <- rbind(vertices, vertices2)
+vertices <- vertices[!duplicated(vertices, fromLast = T), ]
+
+
+edges <- data.frame(
+    from = c(rep("root", length(c(unique(plotData$source), unique(plotData$target)))), unique(plotData$source), unique(plotData$target)),
+    to = c(
+        unique(plotData$source), unique(plotData$target), paste0(unique(plotData$source), sep, "ligand"),
+        paste0(unique(plotData$target), sep, "receptor")
+    ), name = NA, edgeColor = NA
+)
+
+edges2 <- data.frame()
+for (i in seq_len(nrow(plotData))) {
+    edges2 <- rbind(edges2, data.frame(
+        from = paste0(plotData$source[i], sep, "ligand"),
+        to = paste0(plotData$source[i], sep, plotData$ligand[i]),
+        name = paste0(plotData$source[i], sep, plotData$ligand[i], sep, plotData$target[i], sep, plotData$receptor[i]),
+        edgeColor = plotData$target[i]
+    ))
+}
+
+for (i in seq_len(nrow(plotData))) {
+    edges2 <- rbind(edges2, data.frame(
+        from = paste0(plotData$target[i], sep, "receptor"),
+        to = paste0(plotData$target[i], sep, plotData$receptor[i]),
+        name = paste0(plotData$source[i], sep, plotData$ligand[i], sep, plotData$target[i], sep, plotData$receptor[i]),
+        edgeColor = plotData$target[i]
+    ))
+}
+edges2 <- edges2 %>% dplyr::arrange(edgeColor)
+edges <- rbind(edges, edges2)
+edges <- edges[!duplicated(edges, fromLast = T), ]
+
+from <- match(paste0(plotData$source, sep, plotData$ligand), vertices$name)
+to <- match(paste0(plotData$target, sep, plotData$receptor), vertices$name)
+
+vertices$id <- NA
+myleaves <- which(is.na(match(vertices$name, edges$from)))
+nleaves <- length(myleaves)
+vertices$id[myleaves] <- seq(1:nleaves)
+vertices$angle <- 90 - 360 * vertices$id / nleaves
+vertices$hjust <- ifelse(vertices$angle < -90, 1, 0)
+vertices$angle <- ifelse(vertices$angle < -90, vertices$angle + 180, vertices$angle)
+
+mygraph <- igraph::graph_from_data_frame(edges, vertices = vertices, directed = TRUE)
+
+if(T){
+pl <- ggraph(mygraph, layout = "dendrogram", circular = TRUE) +
+  geom_conn_bundle(data = get_con(from = from, to = to), tension = 0.5,
+                   aes(colour = ifelse(type == "ligand", as.character(celltype), NA)),
+                   	show.legend = FALSE) + 
+  scale_edge_color_manual(values = color_use, na.value = "grey70") + # 定义颜色方案，并为非 ligand 类型设置默认颜色
+  geom_node_point(aes(filter = leaf, x = x * 1.01, y = y * 1.01, 
+  					size = 5, color = celltype, shape = type)) +
+  theme_void() + coord_fixed() + 
+	guides(size = "none")+
+  scale_shape_manual(values = c(ligand = 19, receptor = 1)) +
+  geom_node_text(aes(x = x * 1.1, y = y * 1.1, 
+  				   filter = leaf, label = label, 
+  				   angle = angle, hjust =  hjust,
+  				   #angle = 0, hjust = 0.5,vjust=-1.5,
+  				   fontface="italic",
+  				   color = celltype), 
+  			   size = 5, alpha = 1,
+  			   show.legend = FALSE) +
+  scale_colour_manual(values = color_use) + # 为节点和文本定义颜色方案
+  theme(
+    plot.margin = unit(c(0, 0, 0, 0), "cm"),
+    legend.key.size = unit(0.5, "cm") # 修改图例大小
+  ) +
+  labs(x=NULL,y=NULL,shape = "Type",color = 'Celltype')+
+  expand_limits(x = c(-1.4, 1.4), y = c(-1.4, 1.4))
+
+pdf("output/sgNTC/0017_tfh_DRG_related_ligand_receptor_display_partly.pdf", w=5, h=4)
+print(pl)
+dev.off()
+
+graph2ppt(pl,"output/sgNTC/0017_tfh_DRG_related_ligand_receptor_display_partly.pptx",
+		  width =5, height =4)
+}
+}
+
+save(df,
+	 vertices,
+	 mygraph,
+	 pl,
+       file = "object/sgNTC/0017_tfh_DRG_related_ligand_receptor_display_partly.Rdata")
+
+load(file = "object/sgNTC/0017_tfh_DRG_related_ligand_receptor_display_partly.Rdata")
+```
+
+#gene expression VlnPlot & UMAP
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+##提取标准化表达矩阵
+mat=as.data.frame(GetAssayData(cells.cut,layer = 'data'))%>%
+	rownames_to_column(var = "rowname")%>%
+	column_to_rownames(var = "rowname")
+dim(mat);mat[1:10,1:10]
+table(mat["Cd69",]>2.5)
+
+
+head(a)
+color=c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")
+
+pdf("output/sgNTC/0018_tfh_gene_expression_vlnplot.pdf", w=10, h=20,compress=TRUE)
+VlnPlot(cells.cut, features = c("Bcl6","Cxcr5","Pdcd1","Tbx21","Tcf7","Il21","Il4","Ifng"),
+		pt.size =0.3,cols = color,
+		ncol = 2)
+dev.off()
+
+pdf("output/sgNTC/0018_tfh_gene_expression_vlnplot_02.pdf", w=10, h=20,compress=TRUE)
+VlnPlot(cells.cut, features = c("Itgb1","Icam1","Btla","Cd40lg","Il21","Itgal","Itgb2"),
+		pt.size =0.3,cols = color,
+		ncol = 2)
+dev.off()
+
+if(T){
+features=c("tox","tox2","il2","nt5e",
+		   "cd69","egr1","jun","fosb","fos",
+		   "junb","nr4a1","cxcl10","il21r",
+		   "id3","ccr7","slamf6","tnfrsf4",
+		   "izumo1r","ramp3","Klrg1","CXCR6",
+		   "CX3CR1","cxcr3","gzma","gzmb","ccr2",
+		   "prf1","ccl3","ccl4","ccl5","Havcr2",
+		   "Entpd1","il2ra",
+		   "prdm1","il7r","sell","bcl2",
+		   "ccr5","id2","mt1","mt2","myb",
+		   "myc","tnfrsf9","mki67","cks2",
+		   "mad2l1","ccnb1","xcl1","gzmk",
+		   "gzmm","hells","gnl3","batf",
+		   "lag3","cd160","ctla4","tnfrsf14",
+		   "icos","cd28","cd226","fasl","lef1",
+		   "Bcl6","Cxcr5","Pdcd1","Tbx21","Tcf7",
+		   "Il21","Il4","Ifng","Itgb1","Icam1",
+		   "Btla","Cd40lg","Il21","Itgal","Itgb2")
+
+# Step 1: 全小写
+features <- tolower(features)
+
+# Step 2: 首字母大写（任选一种方法）
+# 方法一：基础R
+features <- paste0(toupper(substr(features, 1, 1)), substr(features, 2, nchar(features)))
+# 方法二：正则表达式
+features <- sub("^(.)", "\\U\\1", features, perl = TRUE)
+# 方法三：stringr包
+features <- stringr::str_to_title(features)
+}
+
+if(T){
+pdf("output/sgNTC/0018_tfh_gene_expression_vlnplot_03.pdf", w=15, h=60,compress=TRUE)
+VlnPlot(cells.cut, features = features,
+		pt.size =0.3,cols = color,
+		ncol = 3)
+dev.off()
+}
+
+if(T){
+	max_num=3.3
+colors=c("lightgrey","#5f0a87","#3083dc","#379956","#fbec04","#b23a48","#95190c")
+p <- FeaturePlot(cells.cut, 
+                   features = 'Cd69',
+                   pt.size = 0.5,
+                   order = TRUE) +
+   scale_color_gradientn(
+    colors = colors,
+    limits = c(NA,max_num),  # 设置最大值上限为3，最小值自动适配
+    values = scales::rescale(c(0, max_num)),  # 重新映射颜色范围到[0,3]
+      breaks = c(0,max_num),  # 指定图例的断点为0和最大值
+    labels = c("0", "max"),  # 自定义标签为"0"和"max"
+    oob = scales::squish  )+  # 将超出范围的数值压缩到颜色标度内
+    theme(
+      axis.line = element_blank(),
+      axis.ticks = element_blank(),
+      axis.text = element_blank(),
+      panel.grid = element_blank(),
+      plot.margin = unit(rep(0,4), "cm"), 
+      legend.position = "left"
+    ) +
+    xlab(NULL) + ylab(NULL)
+pdf(file = "output/sgNTC/0018_tfh_gene_expression_UMAP_legend.pdf",
+	width = 5, height=4.5,compress = TRUE)
+print(p)
+dev.off()
+}
+
+colors=c("lightgrey","#5f0a87","#3083dc","#379956","#fbec04","#b23a48","#95190c")
+if(T){
+if(!dir.exists("output/sgNTC/gene_expression_UMAP")) dir.create(
+	"output/sgNTC/gene_expression_UMAP", recursive = TRUE)
+
+# 循环生成所有基因的FeaturePlot
+for(gene in features){
+		# 检查目的基因行中大于2.5的元素数量
+aim_mat=mat[gene, ]
+	count_gt_1 <- sum(aim_mat > 1, na.rm = TRUE)
+
+# 条件判断与分位数计算
+if (count_gt_1 > ncol(mat)/20) {
+  # 计算1/20分位数（即第5%分位数）
+  max_num <- quantile(aim_mat, 
+                     probs = 1 - 1/20, 
+                     na.rm = TRUE,
+                     type = 7)  # 使用默认分位数计算方法
+  max_num <- unname(max_num)   # 移除分位数名称
+} else {
+  max_num <- 1  # 或其他默认值
+}
+  p <- FeaturePlot(cells.cut, 
+                   features = gene,
+                   pt.size = 0.5,
+                   order = TRUE) +
+   scale_color_gradientn(
+    colors = colors,
+    limits = c(NA, max_num),  # 设置最大值上限为3，最小值自动适配
+    values = scales::rescale(c(0, max_num)),  # 重新映射颜色范围到[0,3]
+    oob = scales::squish  )+  # 将超出范围的数值压缩到颜色标度内
+    theme(
+      axis.line = element_blank(),
+      axis.ticks = element_blank(),
+      axis.text = element_blank(),
+      panel.grid = element_blank(),
+      plot.margin = unit(rep(0,4), "cm"), 
+      legend.position = "none"
+    ) +
+    xlab(NULL) + ylab(NULL)
+  print(paste0("now make UMAP chart of ",gene))
+  # 构建动态文件名
+  pdf_file <- paste0("output/sgNTC/gene_expression_UMAP/tfh_gene_expression_UMAP_", gene, ".pdf")
+  
+  pdf(file = pdf_file, width = 5, height = 4.5, compress = TRUE)
+  print(p)
+  dev.off()
+  }}
+```
+
+#gene expression violin&box&dotplot chart
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+##提取标准化表达矩阵
+mat=as.data.frame(GetAssayData(cells.cut,layer = 'data'))%>%
+	rownames_to_column(var = "rowname")%>%
+	column_to_rownames(var = "rowname")
+dim(mat);mat[1:10,1:10]
+table(mat["Tcf7",]>2.5)
+
+library(ggsci)
+library(ggsignif)
+
+if(T){
+features=c("Tcf7","tox","btla","icam1",
+		   "bcl6","cxcr5","pdcd1","tbx21")
+
+# Step 1: 全小写
+features <- tolower(features)
+# Step 2: 首字母大写（任选一种方法）
+# 方法一：基础R
+features <- paste0(toupper(substr(features, 1, 1)), substr(features, 2, nchar(features)))
+# 方法二：正则表达式
+#features <- sub("^(.)", "\\U\\1", features, perl = TRUE)
+# 方法三：stringr包
+#features <- stringr::str_to_title(features)
+features
+}
+mat_select=as.data.frame(t(mat[features,]))
+str(mat_select)
+
+colnames(cells.cut@meta.data)
+# 检查行名是否一致
+identical(rownames(cells.cut@meta.data), rownames(mat_select))
+# 若一致，直接按列合并
+merged_df <- cbind(cells.cut@meta.data, mat_select)
+
+#小提琴图
+colnames(merged_df)
+
+wilcox_test_result_list=list()
+dir.create("output/sgNTC/0018_geneexp_violin_dot_boxplot_chart")
+
+cols=c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")
+
+for(i in features){
+	#i=features[1]
+df_meta = merged_df %>% 
+	dplyr::select(assign_cluster, all_of(i))
+
+# 执行两两比较的 Wilcoxon 秩和检验
+wilcox_test_result <- pairwise.wilcox.test(df_meta[,i],
+										   df_meta$assign_cluster, 
+										   p.adjust.method = "bonferroni")
+wilcox_test_result_list[[i]]=wilcox_test_result
+
+write.csv(wilcox_test_result_list[[i]]$p.value,
+		  file=paste("output/sgNTC/0018_geneexp_violin_dot_boxplot_chart/0018_",gsub("/", "", i),"_violin_dot_boxplot_chart_Pvalue.csv"),
+		  na = "",row.names = T)
+
+p1=merged_df%>%
+ggplot(.,aes(x=assign_cluster,y= !!sym(i)))+
+    # 添加小提琴图（先绘制，作为背景层）
+  geom_violin(
+    data = merged_df %>% dplyr::filter(!!sym(i) >= 0),  # 与箱线图相同的过滤条件
+    aes(fill = assign_cluster),   # 使用相同填充色
+    alpha = 1,                   # 调整透明度避免遮挡箱线图
+    color = NA,                    # 移除小提琴边框线
+    trim = TRUE,                   # 截断尾部以匹配数据范围
+    scale = "width"                # 统一宽度
+  ) +
+	# 箱线图（覆盖在小提琴图上）
+	geom_boxplot(data = merged_df %>% dplyr::filter(!!sym(i) > 0),  # 过滤条件
+  	aes(fill = assign_cluster),  # 添加 fill 映射
+  	 fill = NA,         # 强制不填充颜色[6](@ref)
+  	notchwidth=1,
+  	staplewidth=0,
+    width = 0.3,
+    color = "black",             # 箱线边框颜色（避免默认灰色覆盖填充色）
+    size = 0.6,                  # 控制边缘线厚度（默认0.5，建议0.3-0.5）
+    outliers=TRUE,
+    outlier.color = "black",      # 异常点颜色（可选）
+    outlier.size = 0.3  # 缩小异常点尺寸（默认2，建议设置为1-1.5）
+    )+
+	# 散点图（最后绘制，显示在顶层）
+	 geom_jitter(
+    aes(color = "black"),  # 关键修改：颜色映射到分组变量
+    width = 0.4,
+    alpha = 1,  # 调整透明度以增强可读性
+    size = 0.1     # 可选：调整散点大小
+    )+
+  theme_classic()+xlab("")+ylab(paste0(i," exp."))+
+	scale_fill_manual(values = cols) +
+	scale_color_manual(values = "black") +
+	theme(axis.text.x = element_text(size = 8,color = "black"),
+  	  axis.text.y = element_text(size = 8, color = "black"),
+  	  axis.title.x = element_text(size = 8, color = "black"),
+  	  axis.title.y = element_text(size = 8, color = "black"),
+  	  title = element_text(size = 8, color = "black"),
+  	  legend.position = "none", # "none" REMOVE legend
+		  )
+p1
+
+print(paste0("Now save gene plot of ",i))
+pdf(paste("output/sgNTC/0018_geneexp_violin_dot_boxplot_chart/0018_",gsub("/", "", i),"_violin_dot_boxplot_chart.pdf", sep=""),width =5, height =3,compress=TRUE)
+print(p1)
+dev.off()
+
+graph2ppt(p1,paste("output/sgNTC/0018_geneexp_violin_dot_boxplot_chart/0018_",
+				gsub("/", "", i),"_violin_dot_boxplot_chart.pptx", sep=""),width =5, height =3)
+}
+qsavem(merged_df,
+	   mat_select,
+	   features,
+	   wilcox_test_result_list,
+	   cols,
+	  file="object/sgNTC/0018_geneexp_violin_dot_boxplot_chart.qs")
+
+qload("object/sgNTC/0018_geneexp_violin_dot_boxplot_chart.qs")
+```
+
+#pie chart of tfh ratio 
+```{r eval=FALSE, include=FALSE}
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+
+tab <- table(cells.cut$assign_cluster)
+matrix_result <- data.frame(
+  names = as.factor(names(tab)), 
+  Count = as.numeric(as.vector(tab)),  # 显式数值化
+  share = as.numeric(as.vector(tab))/sum(as.numeric(as.vector(tab)))*100
+)
+
+if(T){
+color=c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")
+# 圆环图
+pl=ggplot(matrix_result,aes(x = 1, y = Count, fill = names))+
+  geom_bar(width = 0.3,stat = 'identity')+
+  coord_polar(theta = 'y')+
+  geom_text(aes(label = paste0(round(share,1),'%')),size=7,
+            position = position_stack(vjust = .5))+
+  labs(x = NULL, y = NULL, fill = NULL, 
+       title = "")+
+  scale_fill_manual(values = color) +
+  theme_void() +
+  theme(axis.line = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.title = element_text(hjust = 0.5, color = "#666666"),
+  	  legend.key.size = unit(0.75, "cm"),   # 图例图标大小（原默认0.8cm）
+    legend.text = element_text(size=14),
+      plot.margin = unit(rep(0,4), "cm"))+  # 图例文字字号（原默认11）
+  xlim(0.5, 1.5)
+
+pdf("output/sgNTC/0019_tfh_group_ratio_pie_chart.pdf", w=8, h=6)
+print(pl)
+dev.off()
+}
+
+save(matrix_result,
+       file = "object/sgNTC/0019_tfh_group_ratio_pie_chart.Rdata")
+
+load(file = "object/sgNTC/0019_tfh_group_ratio_pie_chart.Rdata")
+```
+
+#Stem-like & Effect./TD CD8 T signature
+```{r eval=FALSE, include=FALSE}
+suppressPackageStartupMessages({
+	library("GenomicRanges")
+	library("limma")
+	library(edgeR)
+	library(tidyverse)
+	library("edgeR")
+	library("DESeq2")
+	library("clusterProfiler")
+	library("org.Hs.eg.db")
+	library("gplots")
+	library(GEOquery)
+	library(FactoMineR)#载入PCA函数
+	library(factoextra)
+})
+gset<-getGEO(GEO ="GSE84105" ,GSEMatrix = TRUE,
+			 AnnotGPL = TRUE,getGPL=F)
+
+class(exprs(gset[[1]]))  # 应为 "matrix"
+head(rownames(exprs(gset[[1]])))  # 应显示探针ID（如 "1000_at"）
+pdata=pData(gset[[1]]);
+exprs=as.data.frame(exprs(gset[[1]]));
+
+library(biomaRt)
+mart0 = useMart('ensembl')
+listDatasets(mart0)
+mart <- useMart("ensembl","mmusculus_gene_ensembl")  
+#mmusculus_gene_ensembl	
+#hsapiens_gene_ensembl
+#查看biomaRt支持哪些ID类型的输入
+input=listFilters(mart)#输入的ID类型
+#查看biomaRt支持哪些ID类型的输出
+output=listAttributes(mart)
+
+gene=rownames(exprs)
+
+geneID <- getBM(attributes=
+                  c("external_gene_name","affy_mouse430_2"),
+                filters ="affy_mouse430_2",values = gene, mart = mart)#[,1]
+geneID # 查看
+# filters，指定输入ID的类型，
+# attributes指定输出ID的类型，
+# [,1]，取第一列，是为了把输出的ID从矩阵变为向量，因为clusterProfiler包的enrichKEGG函数需要输入为向量。
+
+exprs$affy_mouse430_2=rownames(exprs)
+mRNA<-dplyr::filter(geneID)%>%#选择编码蛋白
+  dplyr::select(external_gene_name,affy_mouse430_2)%>%
+  inner_join(exprs,by ="affy_mouse430_2")%>%#与表达谱合并
+  dplyr::distinct(external_gene_name,.keep_all = T)
+row.names(mRNA)=mRNA$external_gene_name;mRNA=mRNA[,-c(1:2)]
+
+#CXCR5+_CD8 Stem-like cell CD8
+#Tim3+_CD8  Effect./TD CD8
+
+# 判断数据质量 : PCA进行分组查看
+colnames(mRNA)=c("Naïve_1","Naïve_2",
+		 "Stem-like_1","Stem-like_2","Stem-like_3",
+		 "Effect/TD_1","Effect/TD_2","Effect/TD_3")
+if(T){
+### 判断数据质量 : PCA进行分组查看
+group4=c("Naïve","Naïve",
+		 "Stem-like","Stem-like","Stem-like",
+		 "Effect/TD","Effect/TD","Effect/TD")
+
+group_list=factor(group4,levels = c("Naïve","Stem-like","Effect/TD"))
+### 筛选MAD前5000的基因(MAD（绝对中位差）反映数据的变化程度)
+keep_data <- mRNA[order(apply(mRNA,1,mad), decreasing = T)[1:5000],]
+dat.pca <- PCA(t(keep_data), graph = F) 
+pca <- fviz_pca_ind(dat.pca,axes = c(1, 2),
+                    title = "Principal Component Analysis",
+                    legend.title = "Groups",
+                    geom.ind = c("point","text"), #"point","text"
+                    pointsize = 3,
+                    labelsize = 4,
+                    repel = TRUE, #标签不重叠
+                    col.ind = group_list, # 分组上色
+                    axes.linetype=NA,  # remove axeslines
+                    mean.point=F#去除分组中心点
+                    ) +
+  theme(axis.text.x = element_text(size = 8,color = "black"),
+  	  axis.text.y = element_text(size = 8, color = "black"),
+  	  axis.title.x = element_text(size = 14, color = "black"),
+  	  axis.title.y = element_text(size = 14, color = "black"),
+  	  title = element_text(size = 14, color = "black", face = "bold"),
+  	  legend.position = "none", # "none" REMOVE legend
+        plot.title = element_text(hjust = 0.5),
+  	  panel.border = element_rect(colour = "black", fill = NA, linewidth = 1), #加外框线
+  	  panel.grid.major = element_blank(),  # 移除主网格线
+    panel.grid.minor = element_blank(),  # 移除次网格线
+    panel.background = element_blank()   # 移除背景填充
+  )+  
+  coord_fixed(ratio = 1) #坐标轴的纵横比
+pca
+ggsave(pca,filename= "output/sgNTC/0020_Stem-like_EffectTD_CD8T_PCA_analysis.pdf", width = 5, height = 5)
+}
+```
+
+#limma DEG Stem-like_vs_Naïve
+```{r eval=FALSE, include=FALSE}
+if(T){
+group4=c("Naïve","Naïve",
+		 "Stem-like","Stem-like","Stem-like")
+
+group_list=factor(group4,levels = c("Naïve","Stem-like"))
+table(group_list)#检查一下组别数量
+
+}
+
+if(T){
+  N_counts=mRNA[,c(1:5)]
+  y <- DGEList(counts=N_counts)
+  keep <- rowSums(cpm(y)>1) >= 2
+y <- y[keep, , keep.lib.sizes=FALSE]
+y <- calcNormFactors(y)
+logCPM <- cpm(y, log=TRUE, prior.count=3)
+design <- model.matrix(~group_list)
+fit <- lmFit(logCPM ,design)
+fit1 <- eBayes(fit,trend=TRUE)
+summary(decideTests(fit))
+
+DEG_limma = topTable(fit1, coef=2, n=Inf)
+DEG_limma = na.omit(DEG_limma)
+pvalue_t=0.05
+logFC_t=1
+k1 = (DEG_limma$adj.P.Val < pvalue_t)&(DEG_limma$logFC < -logFC_t)
+k2 = (DEG_limma$adj.P.Val < pvalue_t)&(DEG_limma$logFC > logFC_t)
+DEG_limma$regulated = ifelse(k1,"down",ifelse(k2,"up","not"))
+table(DEG_limma$regulated)
+
+head(DEG_limma[DEG_limma$regulated=="up",])
+
+up=head(DEG_limma[DEG_limma$regulated=="up",])[1,] #直接选取第一列上调基因
+upgene <- rownames(up)
+topexp <- c(t(N_counts[match(upgene,rownames(N_counts)),]))
+topexp
+
+test <- data.frame(value=topexp, group=group_list)
+test
+
+write.csv(DEG_limma,file = "output/sgNTC/0020_Stem-like_vs_Naïve_DEGlimma.csv",row.names = T)
+}
+
+save(N_counts,gset,pdata,exprs,mRNA,
+	 DEG_limma,
+	 file = 'object/sgNTC/0020_Stem-like_vs_Naïve_DEGlimma.Rdata')
+
+load(file = 'object/sgNTC/0020_Stem-like_vs_Naïve_DEGlimma.Rdata')
+```
+
+#limma DEG Effect/TD_vs_Naïve
+```{r eval=FALSE, include=FALSE}
+if(T){
+group4=c("Naïve","Naïve",
+		 "Effect/TD","Effect/TD","Effect/TD")
+
+group_list=factor(group4,levels = c("Naïve","Effect/TD"))
+table(group_list)#检查一下组别数量
+
+}
+
+if(T){
+  N_counts=mRNA[,c(1:2,6:8)]
+  y <- DGEList(counts=N_counts)
+  keep <- rowSums(cpm(y)>1) >= 2
+y <- y[keep, , keep.lib.sizes=FALSE]
+y <- calcNormFactors(y)
+logCPM <- cpm(y, log=TRUE, prior.count=3)
+design <- model.matrix(~group_list)
+fit <- lmFit(logCPM ,design)
+fit1 <- eBayes(fit,trend=TRUE)
+summary(decideTests(fit))
+
+DEG_limma = topTable(fit1, coef=2, n=Inf)
+DEG_limma = na.omit(DEG_limma)
+pvalue_t=0.05
+logFC_t=1
+k1 = (DEG_limma$adj.P.Val < pvalue_t)&(DEG_limma$logFC < -logFC_t)
+k2 = (DEG_limma$adj.P.Val < pvalue_t)&(DEG_limma$logFC > logFC_t)
+DEG_limma$regulated = ifelse(k1,"down",ifelse(k2,"up","not"))
+table(DEG_limma$regulated)
+
+head(DEG_limma[DEG_limma$regulated=="up",])
+
+up=head(DEG_limma[DEG_limma$regulated=="up",])[1,] #直接选取第一列上调基因
+upgene <- rownames(up)
+topexp <- c(t(N_counts[match(upgene,rownames(N_counts)),]))
+topexp
+
+test <- data.frame(value=topexp, group=group_list)
+test
+
+write.csv(DEG_limma,file = "output/sgNTC/0020_EffectTD_vs_Naïve_DEGlimma.csv",row.names = T)
+}
+
+save(N_counts,gset,pdata,exprs,mRNA,
+	 DEG_limma,
+	 file = 'object/sgNTC/0020_EffectTD_vs_Naïve_DEGlimma.Rdata')
+
+load(file = 'object/sgNTC/0020_EffectTD_vs_Naïve_DEGlimma.Rdata')
+```
+
+#Creat custom gene set of Stem-like_Effect/TD differentiation 
+```{r eval=FALSE, include=FALSE}
+rm(list =ls());gc()
+suppressPackageStartupMessages({
+	library(clusterProfiler)
+	library(tidyverse)
+	library(ggplot2)
+	library(org.Hs.eg.db)
+	library(org.Mm.eg.db)
+	library(GSEABase)
+})
+
+if(T){
+load(file = 'object/sgNTC/0020_Stem-like_vs_Naïve_DEGlimma.Rdata')
+Stemlike_vs_Naïve=DEG_limma
+
+load(file = 'object/sgNTC/0020_EffectTD_vs_Naïve_DEGlimma.Rdata')
+EffectTD_vs_Naïve=DEG_limma
+
+Stemlike_differentiation_signature=Stemlike_vs_Naïve%>%
+  arrange(desc(logFC))%>%
+  top_n(n=300,wt=logFC)
+
+EffectTD_differentiation_signature=EffectTD_vs_Naïve%>%
+  arrange(desc(logFC))%>%
+  top_n(n=300,wt=logFC)
+}
+mRNA["Ahr",]
+Stemlike=rownames(Stemlike_differentiation_signature)%in%
+        rownames(EffectTD_differentiation_signature)
+Stemlike_df=Stemlike_differentiation_signature[!Stemlike,]
+
+EffectTD=rownames(EffectTD_differentiation_signature)%in%
+	rownames(Stemlike_differentiation_signature)
+EffectTD_df=EffectTD_differentiation_signature[!EffectTD,]
+
+if(T){
+pathways=list()
+pathways[["Stem-like cell CD8 T cell gene signature"]]=
+	rownames(Stemlike_differentiation_signature)[!Stemlike]
+pathways[["Effect/TD CD8 T cell gene signature"]]=
+	rownames(EffectTD_differentiation_signature)[!EffectTD]
+
+# 创建一个 GMT 文件
+gmt_file_path <- "input/gmt/Stemlike_EffectTD_differentiation_signature.gmt"
+
+# 构造数据帧
+data_rows <- lapply(names(pathways), function(name) {
+  genes <- pathways[[name]]
+  data.frame(
+    GeneSetName = name,
+    GeneSetDescription = name,
+    gene_names = genes,
+    stringsAsFactors = FALSE)
+})
+
+# 合并所有行
+data_df <- do.call(rbind, data_rows)
+
+# 写入 GMT 文件
+write.table(data_df,
+            file = gmt_file_path,
+            row.names = FALSE,
+            col.names = FALSE,
+            sep = "\t",
+            quote = FALSE
+)
+}
+  d="input/gmt/Stemlike_EffectTD_differentiation_signature.gmt"
+geneset <- read.gmt(d)
+
+write.csv(geneset, 
+            file ="output/sgNTC/0020_Stemlike_EffectTD_differentiation_signature.csv",row.names = F)
+
+write.csv(Stemlike_df, 
+            file ="output/sgNTC/0020_Stemlike_signature_df.csv",row.names = T)
+write.csv(EffectTD_df, 
+            file ="output/sgNTC/0020_EffectTD_signature_df.csv",row.names = T)
+
+save(data_df,
+	 Stemlike_vs_Naïve,EffectTD_vs_Naïve,
+	 Stemlike_differentiation_signature,EffectTD_differentiation_signature,
+	 pathways,
+	 EffectTD,Stemlike,
+	 EffectTD_df,Stemlike_df,
+	 file = 'object/sgNTC/0020_Stemlike_EffectTD_differentiation_signature.Rdata')
+
+load(file = 'object/sgNTC/0020_Stemlike_EffectTD_differentiation_signature.Rdata')
+```
+
+
+#Running GSVA with Custom Gene Sets
+
+```{r eval=FALSE, include=FALSE}
+suppressPackageStartupMessages({
+	library(GSVA)
+library(GSEABase)
+library(tidyverse)
+library(ggplot2)
+#install.packages("PupillometryR")
+library(PupillometryR)
+library(ggforce)
+library(dplyr) 
+})
+
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+
+geneset <- read.gmt(gmtfile="input/gmt/Stemlike_EffectTD_differentiation_signature.gmt")
+head(geneset)
+
+if(T){
+# 按 term 列分组并收集基因
+geneset_list <- geneset %>%
+  group_by(term) %>%
+  summarise(genes = list(gene), .groups = 'drop') %>%
+  pull(genes) %>%
+  set_names(unique(geneset$term))
+
+
+gene.expr <-  as.matrix(cells.cut[["RNA"]]$scale.data)
+dim(gene.expr)
+gsva.result <- GSVA::gsva(gene.expr, 
+						  gset.idx.list=geneset_list,
+						  kcdf='Gaussian')
+
+gsva_long <- reshape2::melt(gsva.result)%>%
+	dplyr::rename(pathway_name="Var1",
+		   cell_id="Var2",
+		   pathway_score="value")
+scMetadata=cells.cut@meta.data%>%
+	rownames_to_column(var = "cell_id")
+
+gsva_long_meta=merge(gsva_long,scMetadata,
+				by.x ="cell_id", by.y = "cell_id", all = TRUE)
+
+names(gsva_long_meta);min(gsva_long_meta$pathway_score);max(gsva_long_meta$pathway_score)
+
+wilcox_test_result_list=list()
+for(i in levels(gsva_long_meta$pathway_name)){
+gsva_long_meta01=gsva_long_meta%>%
+	dplyr::filter(pathway_name%in% i)
+
+# 执行两两比较的 Wilcoxon 秩和检验
+wilcox_test_result <- pairwise.wilcox.test(gsva_long_meta01$pathway_score,
+										   gsva_long_meta01$assign_cluster, 
+										   p.adjust.method = "bonferroni")
+wilcox_test_result_list[[i]]=wilcox_test_result
+
+p1 <- 
+    ggplot(data = gsva_long_meta01, 
+           aes(x = assign_cluster, y = pathway_score, fill = assign_cluster)) +
+    geom_flat_violin(position = position_nudge(x = 0.2, y = 0), alpha = 0.8) +
+    geom_point(aes(y = pathway_score, color = assign_cluster), 
+               position = position_jitter(width = 0.15), size = 1, alpha = 0.1) +
+    geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.8) +
+    labs(y = NULL, x = NULL) +  #Normalized z-score
+    guides(fill = "none", color = "none") +
+    scale_y_continuous(limits = c(-0.6, 0.6)) +
+    scale_fill_manual(values = c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")) +
+    scale_colour_manual(values = c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")) +
+    coord_flip() +	
+	labs(title=paste0(i,"\n"))+
+	theme_classic()+
+	theme(axis.text.x = element_text(size = 14, color = "black", family = "sans"),
+  	  axis.text.y = element_text(size = 14, color = "black", family = "sans"),
+		  axis.title = element_text(size = 16),
+		  plot.title = element_text(hjust = 0.5, size = 16))
+
+pdf(paste("output/sgNTC/0020_",gsub("/", "", i),"gsva_result.pdf", sep=""),width =6, height =4,compress=TRUE)
+print(p1)
+dev.off()
+}
+
+save(gsva.result,
+	 geneset_list,
+	 scMetadata,
+	 wilcox_test_result_list,
+	 gsva_long_meta,
+	 file = 'object/sgNTC/0020_Stemlike_EffectTD_differentiation_signature_gsva_result.Rdata')
+}
+
+rm(list =ls())
+load(file = 'object/sgNTC/0020_Stemlike_EffectTD_differentiation_signature_gsva_result.Rdata')
+```
+
+#C1-C3 reanalysis
+```{r eval=FALSE, include=FALSE}
+rm(list =ls());gc()
+
+load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
+
+cellscut_c1_c3 <- subset(cells.cut, subset = assign_cluster=="c1" | 
+					 	assign_cluster=="c2" | 
+					 	assign_cluster=="c3")
+cellscut_c1_c3$assign_cluster=factor(
+	as.character(cellscut_c1_c3$assign_cluster))
+table(cellscut_c1_c3$assign_cluster)
+
+cellscut_c1_c3 <- NormalizeData(cellscut_c1_c3 ,
+						   normalization.method = "LogNormalize", scale.factor = 10000)
+#高变基因
+cellscut_c1_c3 <- FindVariableFeatures(cellscut_c1_c3, selection.method = "vst", nfeatures = 3000)
+gene_data <- VariableFeatures(object =cellscut_c1_c3)
+
+#归一化
+cellscut_c1_c3 <- ScaleData(cellscut_c1_c3, features = gene_data)
+#降维聚类
+cellscut_c1_c3 <- RunPCA(cellscut_c1_c3, 
+					features = VariableFeatures(object = cellscut_c1_c3))
+ElbowPlot(cellscut_c1_c3)
+cellscut_c1_c3 <- FindNeighbors(cellscut_c1_c3, dims = 1:10)
+cellscut_c1_c3 <- FindClusters(cellscut_c1_c3, resolution = 0.5)
+cellscut_c1_c3 <- RunUMAP(cellscut_c1_c3, dims = 1:3,
+					 n.components=2,
+					 metric = "manhattan", 
+					 #euclidean, *****
+					 #cosine, ***
+					 #manhattan, *****
+					 #hamming, 
+					 #correlation, ***
+					 #precomputed
+					 umap.method="umap-learn",return.model = TRUE,
+					 min.dist=0.2,
+					 n.neighbors=50L)
+
+cellscut_c1_c3@active.ident=cellscut_c1_c3$assign_cluster
+cellscut_c1_c3$seurat_clusters=cellscut_c1_c3@active.ident
+table(cellscut_c1_c3$seurat_clusters)
+```
+
+#UMAP plot
+```{r eval=FALSE, include=FALSE}
+cellscut_c1_c3@active.ident=as.factor(cellscut_c1_c3$assign_cluster)
+color=c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")
+
+if(T){
+p3 <- DimPlot(cellscut_c1_c3, reduction = "umap", 
+              group.by = "assign_cluster", pt.size=0.8,
+              cols = color,label = TRUE,
+              label.size = 5,label.color = "black",
+			  order = TRUE,
+              label.box = FALSE,raster=FALSE)+
+	theme(axis.line = element_blank(),
+		  axis.ticks = element_blank(),
+		  axis.text = element_blank(),
+		  panel.grid = element_blank(),
+		  legend.position = "none")+
+	xlab(NULL)+ylab(NULL)+	
+	labs(title=NULL)
+
+pdf(file = "output/sgNTC/0021_C1-C3_merged_UMAP.pdf",width = 5, height=4,compress = TRUE)
+print(p3)
+dev.off()
+}
+if(T){
+table(cellscut_c1_c3$orig.ident)
+p3 <- DimPlot(cellscut_c1_c3, reduction = "umap", 
+              group.by = "orig.ident", pt.size=0.8,
+              cols = color,label = FALSE,
+              label.size = 5,label.color = "black",
+              label.box = FALSE,raster=FALSE)+
+	theme(axis.line = element_blank(),
+		  axis.ticks = element_blank(),
+		  axis.text = element_blank(),
+		  panel.grid = element_blank(),
+		  legend.position = "none")+
+	xlab(NULL)+ylab(NULL)+	
+	labs(title=NULL)+
+  facet_wrap(~ orig.ident, ncol = 1)
+
+pdf(file = "output/sgNTC/0021_C1-C3_merged_UMAP_origident.pdf",width = 3, height=6,compress = TRUE)
+print(p3)
+dev.off()
+}
+
+pbmc.markers <- FindAllMarkers(cellscut_c1_c3,test.use = "wilcox",
+							   only.pos = F,min.pct = 0,logfc.threshold = 0,
+							   return.thresh = 1)
+write.csv(pbmc.markers, 
+            file ="output/sgNTC/0021_sgNTC_C1-C3_DEG_result.csv")
+
+save(cellscut_c1_c3,
+	 pbmc.markers,
+	 file = 'object/sgNTC/0021_sgNTC_C1-C3_combined_seurat_filtered.Rdata')
+
+rm(list =ls());gc()
+load(file = 'object/sgNTC/0021_sgNTC_C1-C3_combined_seurat_filtered.Rdata')
+```
