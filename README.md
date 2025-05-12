@@ -3,4 +3,4 @@
 
 
 
-The directory object/sgNTC contains all data required by the related code
+The directory object/sgNTC contains all data required by the related code.
