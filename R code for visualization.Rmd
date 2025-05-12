@@ -494,16 +494,6 @@ pl=ggplot(matrix_result,aes(x = 1, y = Count, fill = names))+
 #Running GSVA with Custom Gene Sets
 
 ```{r eval=FALSE, include=FALSE}
-suppressPackageStartupMessages({
-	library(GSVA)
-library(GSEABase)
-library(tidyverse)
-library(ggplot2)
-#install.packages("PupillometryR")
-library(PupillometryR)
-library(ggforce)
-library(dplyr) 
-})
 
 load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
 
@@ -567,10 +557,6 @@ p1 <-
   	  axis.text.y = element_text(size = 14, color = "black", family = "sans"),
 		  axis.title = element_text(size = 16),
 		  plot.title = element_text(hjust = 0.5, size = 16))
-
-pdf(paste("output/sgNTC/0020_",gsub("/", "", i),"gsva_result.pdf", sep=""),width =6, height =4,compress=TRUE)
-print(p1)
-dev.off()
 }
 
 save(gsva.result,
@@ -581,116 +567,10 @@ save(gsva.result,
 	 file = 'object/sgNTC/0020_Stemlike_EffectTD_differentiation_signature_gsva_result.Rdata')
 }
 
-rm(list =ls())
-load(file = 'object/sgNTC/0020_Stemlike_EffectTD_differentiation_signature_gsva_result.Rdata')
 
 qsavem(matrix_result,
-	  file="object/sgNTC/0019_tfh_group_ratio_pie_chart.qs")
+	  file="object/sgNTC/0020_Stemlike_EffectTD_differentiation_signature_gsva_result.qs")
 
 
 load(file = "J:\\00.keti\\000_FGT\\000_scRNAseq\\20240923_LCMV_sgNTC_vs_sgVps29/object/sgNTC/0017_tfh_DRG_related_ligand_receptor.Rdata")
-```
-
-#C1-C3 reanalysis
-```{r eval=FALSE, include=FALSE}
-rm(list =ls());gc()
-
-load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
-
-cellscut_c1_c3 <- subset(cells.cut, subset = assign_cluster=="c1" | 
-					 	assign_cluster=="c2" | 
-					 	assign_cluster=="c3")
-cellscut_c1_c3$assign_cluster=factor(
-	as.character(cellscut_c1_c3$assign_cluster))
-table(cellscut_c1_c3$assign_cluster)
-
-cellscut_c1_c3 <- NormalizeData(cellscut_c1_c3 ,
-						   normalization.method = "LogNormalize", scale.factor = 10000)
-#高变基因
-cellscut_c1_c3 <- FindVariableFeatures(cellscut_c1_c3, selection.method = "vst", nfeatures = 3000)
-gene_data <- VariableFeatures(object =cellscut_c1_c3)
-
-#归一化
-cellscut_c1_c3 <- ScaleData(cellscut_c1_c3, features = gene_data)
-#降维聚类
-cellscut_c1_c3 <- RunPCA(cellscut_c1_c3, 
-					features = VariableFeatures(object = cellscut_c1_c3))
-ElbowPlot(cellscut_c1_c3)
-cellscut_c1_c3 <- FindNeighbors(cellscut_c1_c3, dims = 1:10)
-cellscut_c1_c3 <- FindClusters(cellscut_c1_c3, resolution = 0.5)
-cellscut_c1_c3 <- RunUMAP(cellscut_c1_c3, dims = 1:3,
-					 n.components=2,
-					 metric = "manhattan", 
-					 #euclidean, *****
-					 #cosine, ***
-					 #manhattan, *****
-					 #hamming, 
-					 #correlation, ***
-					 #precomputed
-					 umap.method="umap-learn",return.model = TRUE,
-					 min.dist=0.2,
-					 n.neighbors=50L)
-
-cellscut_c1_c3@active.ident=cellscut_c1_c3$assign_cluster
-cellscut_c1_c3$seurat_clusters=cellscut_c1_c3@active.ident
-table(cellscut_c1_c3$seurat_clusters)
-```
-
-#UMAP plot
-```{r eval=FALSE, include=FALSE}
-cellscut_c1_c3@active.ident=as.factor(cellscut_c1_c3$assign_cluster)
-color=c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")
-
-if(T){
-p3 <- DimPlot(cellscut_c1_c3, reduction = "umap", 
-              group.by = "assign_cluster", pt.size=0.8,
-              cols = color,label = TRUE,
-              label.size = 5,label.color = "black",
-			  order = TRUE,
-              label.box = FALSE,raster=FALSE)+
-	theme(axis.line = element_blank(),
-		  axis.ticks = element_blank(),
-		  axis.text = element_blank(),
-		  panel.grid = element_blank(),
-		  legend.position = "none")+
-	xlab(NULL)+ylab(NULL)+	
-	labs(title=NULL)
-
-pdf(file = "output/sgNTC/0021_C1-C3_merged_UMAP.pdf",width = 5, height=4,compress = TRUE)
-print(p3)
-dev.off()
-}
-if(T){
-table(cellscut_c1_c3$orig.ident)
-p3 <- DimPlot(cellscut_c1_c3, reduction = "umap", 
-              group.by = "orig.ident", pt.size=0.8,
-              cols = color,label = FALSE,
-              label.size = 5,label.color = "black",
-              label.box = FALSE,raster=FALSE)+
-	theme(axis.line = element_blank(),
-		  axis.ticks = element_blank(),
-		  axis.text = element_blank(),
-		  panel.grid = element_blank(),
-		  legend.position = "none")+
-	xlab(NULL)+ylab(NULL)+	
-	labs(title=NULL)+
-  facet_wrap(~ orig.ident, ncol = 1)
-
-pdf(file = "output/sgNTC/0021_C1-C3_merged_UMAP_origident.pdf",width = 3, height=6,compress = TRUE)
-print(p3)
-dev.off()
-}
-
-pbmc.markers <- FindAllMarkers(cellscut_c1_c3,test.use = "wilcox",
-							   only.pos = F,min.pct = 0,logfc.threshold = 0,
-							   return.thresh = 1)
-write.csv(pbmc.markers, 
-            file ="output/sgNTC/0021_sgNTC_C1-C3_DEG_result.csv")
-
-save(cellscut_c1_c3,
-	 pbmc.markers,
-	 file = 'object/sgNTC/0021_sgNTC_C1-C3_combined_seurat_filtered.Rdata')
-
-rm(list =ls());gc()
-load(file = 'object/sgNTC/0021_sgNTC_C1-C3_combined_seurat_filtered.Rdata')
 ```
