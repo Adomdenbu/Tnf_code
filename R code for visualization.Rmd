@@ -388,158 +388,18 @@ p3 = ggplot(dat_lig1,aes(id,features.plot,fill = avg.exp.scaled,size =pct.exp))+
   theme(plot.margin = margin(5,5,5,5))
 }
 }
-qsavem(dat_lig1,
-	 df_ord_lig,
-	  file="object/sgNTC/0017_tfh_DRG_related_ligand_receptor.qs")
-load(file = "J:\\00.keti\\000_FGT\\000_scRNAseq\\20240923_LCMV_sgNTC_vs_sgVps29/object/sgNTC/0017_tfh_DRG_related_ligand_receptor.Rdata")
 ```
 
-#ligand-receptor analysis小图展示图
+#ligand-receptor analysis_display_partly
 ```{r eval=FALSE, include=FALSE}
-suppressPackageStartupMessages({
-	library(data.table)
-	library(dplyr)
-	library(gridExtra)
-	library(grid)
-	library(ggrepel)
-	library(readr)
-	library(ggplot2)
-	library(ggpubr)
-	library(ggraph)
-	library(igraph)
-	library(tidyverse)
-	library(RColorBrewer)
-	library(rstatix)
-	library(grDevices)
-	library(circlize)
-})
-
-load(file = "object/sgNTC/0017_tfh_DRG_related_ligand_receptor.Rdata")
-gene_name1
-
-small_legend <- function(fontsize = 5, keysize = .1, marginsize = c(-.1, 0, 0, 0), ...) {    
-	small_legend_theme <- theme(legend.title = element_text(size = fontsize), 
-								legend.text = element_text(size = fontsize),
-								legend.key.size = unit(keysize, "lines"),
-								legend.margin = margin(marginsize[1], 
-													   marginsize[2], 
-													   marginsize[3], 
-													   marginsize[4], 
-													   unit = "cm"),
-								...
-								)    
-	return(small_legend_theme)
-}
-
-colorF <- c("#FDB462","#87638F", "#84cbda","#FB8072","#8DD3C7", "#BEBADA", "#80B1D3",
-			 "#80B1D3", "#ed995a", "#FB8072", "#f3c89d", "#8cc598", "#3d8ea9")
-
-if(T){
-df=data.frame(
-	"source"=c("DRG_neurons","DRG_neurons","Tfh_c2","Tfh_c2",
-			   "Tfh_c1","Tfh_c1","Tfh_c1","Tfh_c2",
-			   "DRG_neurons","DRG_neurons","DRG_neurons"),
-	"target"=c("Tfh_c1","Tfh_c5","DRG_neurons","DRG_neurons",
-			   "DRG_neurons","DRG_neurons","DRG_neurons","DRG_neurons",
-			   "Tfh_c4","Tfh_c5","Tfh_c4"),
-	"ligand"=c("Vcam1","Vcam1","Icam1","Icam1",
-			   "Btla","Cd40lg","Il21","Il21",
-			   "Icam1","Icam1","Icam1"),
-	"receptor"=c("Itgb1","Itgb1","Itgb2","Itgal",
-				 "Tnfrsf14","Itgb2","Il21r","Il21r",
-				 "Itgb2","Itgal","Itgal"),
-  stringsAsFactors = FALSE # 确保初始时不自动转换为因子
-)
-
-# 将指定的列转换为因子
-df$source <- factor(df$source)
-df$target <- factor(df$target)
-df$ligand <- factor(df$ligand)
-df$receptor <- factor(df$receptor)
-}
-
-if(T){
-plotData <- df %>%
-    dplyr::arrange(target, ligand, receptor)
-color_use <- c("#3d8ea9","#ec5e6c","#39268f","#f39139","#91c678","#87638F")
-
-sep <- ">@<"
-vertices <- data.frame(name = c("root", unique(plotData$source), unique(plotData$target)), 
-					   type = NA, celltype = NA, label = NA)
-for (i in c(unique(plotData$source))) {
-    vertices <- rbind(vertices, data.frame(name = paste0(i, sep, "ligand"), 
-    									   type = NA, celltype = i, label = NA))
-}
-for (i in c(unique(plotData$target))) {
-    vertices <- rbind(vertices, data.frame(name = paste0(i, sep, "receptor"), type = NA, celltype = i, label = NA))
-}
-vertices2 <- data.frame()
-for (i in seq_len(nrow(plotData))) {
-    vertices2 <- rbind(vertices2, data.frame(
-        name = paste0(plotData$source[i], sep, plotData$ligand[i]),
-        type = "ligand", celltype = plotData$source[i], label = plotData$ligand[i]
-    ))
-}
-for (i in seq_len(nrow(plotData))) {
-    vertices2 <- rbind(vertices2, data.frame(
-        name = paste0(plotData$target[i], sep, plotData$receptor[i]),
-        type = "receptor", celltype = plotData$target[i], label = plotData$receptor[i]
-    ))
-}
-vertices2 <- vertices2 %>% dplyr::arrange(celltype)
-vertices <- rbind(vertices, vertices2)
-vertices <- vertices[!duplicated(vertices, fromLast = T), ]
-
-
-edges <- data.frame(
-    from = c(rep("root", length(c(unique(plotData$source), unique(plotData$target)))), unique(plotData$source), unique(plotData$target)),
-    to = c(
-        unique(plotData$source), unique(plotData$target), paste0(unique(plotData$source), sep, "ligand"),
-        paste0(unique(plotData$target), sep, "receptor")
-    ), name = NA, edgeColor = NA
-)
-
-edges2 <- data.frame()
-for (i in seq_len(nrow(plotData))) {
-    edges2 <- rbind(edges2, data.frame(
-        from = paste0(plotData$source[i], sep, "ligand"),
-        to = paste0(plotData$source[i], sep, plotData$ligand[i]),
-        name = paste0(plotData$source[i], sep, plotData$ligand[i], sep, plotData$target[i], sep, plotData$receptor[i]),
-        edgeColor = plotData$target[i]
-    ))
-}
-
-for (i in seq_len(nrow(plotData))) {
-    edges2 <- rbind(edges2, data.frame(
-        from = paste0(plotData$target[i], sep, "receptor"),
-        to = paste0(plotData$target[i], sep, plotData$receptor[i]),
-        name = paste0(plotData$source[i], sep, plotData$ligand[i], sep, plotData$target[i], sep, plotData$receptor[i]),
-        edgeColor = plotData$target[i]
-    ))
-}
-edges2 <- edges2 %>% dplyr::arrange(edgeColor)
-edges <- rbind(edges, edges2)
-edges <- edges[!duplicated(edges, fromLast = T), ]
-
-from <- match(paste0(plotData$source, sep, plotData$ligand), vertices$name)
-to <- match(paste0(plotData$target, sep, plotData$receptor), vertices$name)
-
-vertices$id <- NA
-myleaves <- which(is.na(match(vertices$name, edges$from)))
-nleaves <- length(myleaves)
-vertices$id[myleaves] <- seq(1:nleaves)
-vertices$angle <- 90 - 360 * vertices$id / nleaves
-vertices$hjust <- ifelse(vertices$angle < -90, 1, 0)
-vertices$angle <- ifelse(vertices$angle < -90, vertices$angle + 180, vertices$angle)
-
-mygraph <- igraph::graph_from_data_frame(edges, vertices = vertices, directed = TRUE)
+qload("object/sgNTC/0017_tfh_DRG_related_ligand_receptor_display_partly.qs")
 
 if(T){
 pl <- ggraph(mygraph, layout = "dendrogram", circular = TRUE) +
   geom_conn_bundle(data = get_con(from = from, to = to), tension = 0.5,
                    aes(colour = ifelse(type == "ligand", as.character(celltype), NA)),
                    	show.legend = FALSE) + 
-  scale_edge_color_manual(values = color_use, na.value = "grey70") + # 定义颜色方案，并为非 ligand 类型设置默认颜色
+  scale_edge_color_manual(values = color_use, na.value = "grey70") + 
   geom_node_point(aes(filter = leaf, x = x * 1.01, y = y * 1.01, 
   					size = 5, color = celltype, shape = type)) +
   theme_void() + coord_fixed() + 
@@ -548,272 +408,52 @@ pl <- ggraph(mygraph, layout = "dendrogram", circular = TRUE) +
   geom_node_text(aes(x = x * 1.1, y = y * 1.1, 
   				   filter = leaf, label = label, 
   				   angle = angle, hjust =  hjust,
-  				   #angle = 0, hjust = 0.5,vjust=-1.5,
   				   fontface="italic",
   				   color = celltype), 
   			   size = 5, alpha = 1,
   			   show.legend = FALSE) +
-  scale_colour_manual(values = color_use) + # 为节点和文本定义颜色方案
+  scale_colour_manual(values = color_use) +
   theme(
     plot.margin = unit(c(0, 0, 0, 0), "cm"),
-    legend.key.size = unit(0.5, "cm") # 修改图例大小
+    legend.key.size = unit(0.5, "cm")
   ) +
   labs(x=NULL,y=NULL,shape = "Type",color = 'Celltype')+
   expand_limits(x = c(-1.4, 1.4), y = c(-1.4, 1.4))
-
-pdf("output/sgNTC/0017_tfh_DRG_related_ligand_receptor_display_partly.pdf", w=5, h=4)
-print(pl)
-dev.off()
-
-graph2ppt(pl,"output/sgNTC/0017_tfh_DRG_related_ligand_receptor_display_partly.pptx",
-		  width =5, height =4)
 }
-}
-
-save(df,
-	 vertices,
-	 mygraph,
-	 pl,
-       file = "object/sgNTC/0017_tfh_DRG_related_ligand_receptor_display_partly.Rdata")
-
-load(file = "object/sgNTC/0017_tfh_DRG_related_ligand_receptor_display_partly.Rdata")
-```
-
-#gene expression VlnPlot & UMAP
-```{r eval=FALSE, include=FALSE}
-load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
-##提取标准化表达矩阵
-mat=as.data.frame(GetAssayData(cells.cut,layer = 'data'))%>%
-	rownames_to_column(var = "rowname")%>%
-	column_to_rownames(var = "rowname")
-dim(mat);mat[1:10,1:10]
-table(mat["Cd69",]>2.5)
-
-
-head(a)
-color=c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")
-
-pdf("output/sgNTC/0018_tfh_gene_expression_vlnplot.pdf", w=10, h=20,compress=TRUE)
-VlnPlot(cells.cut, features = c("Bcl6","Cxcr5","Pdcd1","Tbx21","Tcf7","Il21","Il4","Ifng"),
-		pt.size =0.3,cols = color,
-		ncol = 2)
-dev.off()
-
-pdf("output/sgNTC/0018_tfh_gene_expression_vlnplot_02.pdf", w=10, h=20,compress=TRUE)
-VlnPlot(cells.cut, features = c("Itgb1","Icam1","Btla","Cd40lg","Il21","Itgal","Itgb2"),
-		pt.size =0.3,cols = color,
-		ncol = 2)
-dev.off()
-
-if(T){
-features=c("tox","tox2","il2","nt5e",
-		   "cd69","egr1","jun","fosb","fos",
-		   "junb","nr4a1","cxcl10","il21r",
-		   "id3","ccr7","slamf6","tnfrsf4",
-		   "izumo1r","ramp3","Klrg1","CXCR6",
-		   "CX3CR1","cxcr3","gzma","gzmb","ccr2",
-		   "prf1","ccl3","ccl4","ccl5","Havcr2",
-		   "Entpd1","il2ra",
-		   "prdm1","il7r","sell","bcl2",
-		   "ccr5","id2","mt1","mt2","myb",
-		   "myc","tnfrsf9","mki67","cks2",
-		   "mad2l1","ccnb1","xcl1","gzmk",
-		   "gzmm","hells","gnl3","batf",
-		   "lag3","cd160","ctla4","tnfrsf14",
-		   "icos","cd28","cd226","fasl","lef1",
-		   "Bcl6","Cxcr5","Pdcd1","Tbx21","Tcf7",
-		   "Il21","Il4","Ifng","Itgb1","Icam1",
-		   "Btla","Cd40lg","Il21","Itgal","Itgb2")
-
-# Step 1: 全小写
-features <- tolower(features)
-
-# Step 2: 首字母大写（任选一种方法）
-# 方法一：基础R
-features <- paste0(toupper(substr(features, 1, 1)), substr(features, 2, nchar(features)))
-# 方法二：正则表达式
-features <- sub("^(.)", "\\U\\1", features, perl = TRUE)
-# 方法三：stringr包
-features <- stringr::str_to_title(features)
-}
-
-if(T){
-pdf("output/sgNTC/0018_tfh_gene_expression_vlnplot_03.pdf", w=15, h=60,compress=TRUE)
-VlnPlot(cells.cut, features = features,
-		pt.size =0.3,cols = color,
-		ncol = 3)
-dev.off()
-}
-
-if(T){
-	max_num=3.3
-colors=c("lightgrey","#5f0a87","#3083dc","#379956","#fbec04","#b23a48","#95190c")
-p <- FeaturePlot(cells.cut, 
-                   features = 'Cd69',
-                   pt.size = 0.5,
-                   order = TRUE) +
-   scale_color_gradientn(
-    colors = colors,
-    limits = c(NA,max_num),  # 设置最大值上限为3，最小值自动适配
-    values = scales::rescale(c(0, max_num)),  # 重新映射颜色范围到[0,3]
-      breaks = c(0,max_num),  # 指定图例的断点为0和最大值
-    labels = c("0", "max"),  # 自定义标签为"0"和"max"
-    oob = scales::squish  )+  # 将超出范围的数值压缩到颜色标度内
-    theme(
-      axis.line = element_blank(),
-      axis.ticks = element_blank(),
-      axis.text = element_blank(),
-      panel.grid = element_blank(),
-      plot.margin = unit(rep(0,4), "cm"), 
-      legend.position = "left"
-    ) +
-    xlab(NULL) + ylab(NULL)
-pdf(file = "output/sgNTC/0018_tfh_gene_expression_UMAP_legend.pdf",
-	width = 5, height=4.5,compress = TRUE)
-print(p)
-dev.off()
-}
-
-colors=c("lightgrey","#5f0a87","#3083dc","#379956","#fbec04","#b23a48","#95190c")
-if(T){
-if(!dir.exists("output/sgNTC/gene_expression_UMAP")) dir.create(
-	"output/sgNTC/gene_expression_UMAP", recursive = TRUE)
-
-# 循环生成所有基因的FeaturePlot
-for(gene in features){
-		# 检查目的基因行中大于2.5的元素数量
-aim_mat=mat[gene, ]
-	count_gt_1 <- sum(aim_mat > 1, na.rm = TRUE)
-
-# 条件判断与分位数计算
-if (count_gt_1 > ncol(mat)/20) {
-  # 计算1/20分位数（即第5%分位数）
-  max_num <- quantile(aim_mat, 
-                     probs = 1 - 1/20, 
-                     na.rm = TRUE,
-                     type = 7)  # 使用默认分位数计算方法
-  max_num <- unname(max_num)   # 移除分位数名称
-} else {
-  max_num <- 1  # 或其他默认值
-}
-  p <- FeaturePlot(cells.cut, 
-                   features = gene,
-                   pt.size = 0.5,
-                   order = TRUE) +
-   scale_color_gradientn(
-    colors = colors,
-    limits = c(NA, max_num),  # 设置最大值上限为3，最小值自动适配
-    values = scales::rescale(c(0, max_num)),  # 重新映射颜色范围到[0,3]
-    oob = scales::squish  )+  # 将超出范围的数值压缩到颜色标度内
-    theme(
-      axis.line = element_blank(),
-      axis.ticks = element_blank(),
-      axis.text = element_blank(),
-      panel.grid = element_blank(),
-      plot.margin = unit(rep(0,4), "cm"), 
-      legend.position = "none"
-    ) +
-    xlab(NULL) + ylab(NULL)
-  print(paste0("now make UMAP chart of ",gene))
-  # 构建动态文件名
-  pdf_file <- paste0("output/sgNTC/gene_expression_UMAP/tfh_gene_expression_UMAP_", gene, ".pdf")
-  
-  pdf(file = pdf_file, width = 5, height = 4.5, compress = TRUE)
-  print(p)
-  dev.off()
-  }}
 ```
 
 #gene expression violin&box&dotplot chart
 ```{r eval=FALSE, include=FALSE}
-load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
-##提取标准化表达矩阵
-mat=as.data.frame(GetAssayData(cells.cut,layer = 'data'))%>%
-	rownames_to_column(var = "rowname")%>%
-	column_to_rownames(var = "rowname")
-dim(mat);mat[1:10,1:10]
-table(mat["Tcf7",]>2.5)
-
-library(ggsci)
-library(ggsignif)
-
-if(T){
-features=c("Tcf7","tox","btla","icam1",
-		   "bcl6","cxcr5","pdcd1","tbx21")
-
-# Step 1: 全小写
-features <- tolower(features)
-# Step 2: 首字母大写（任选一种方法）
-# 方法一：基础R
-features <- paste0(toupper(substr(features, 1, 1)), substr(features, 2, nchar(features)))
-# 方法二：正则表达式
-#features <- sub("^(.)", "\\U\\1", features, perl = TRUE)
-# 方法三：stringr包
-#features <- stringr::str_to_title(features)
-features
-}
-mat_select=as.data.frame(t(mat[features,]))
-str(mat_select)
-
-colnames(cells.cut@meta.data)
-# 检查行名是否一致
-identical(rownames(cells.cut@meta.data), rownames(mat_select))
-# 若一致，直接按列合并
-merged_df <- cbind(cells.cut@meta.data, mat_select)
-
-#小提琴图
-colnames(merged_df)
-
-wilcox_test_result_list=list()
-dir.create("output/sgNTC/0018_geneexp_violin_dot_boxplot_chart")
-
-cols=c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")
-
-for(i in features){
-	#i=features[1]
-df_meta = merged_df %>% 
-	dplyr::select(assign_cluster, all_of(i))
-
-# 执行两两比较的 Wilcoxon 秩和检验
-wilcox_test_result <- pairwise.wilcox.test(df_meta[,i],
-										   df_meta$assign_cluster, 
-										   p.adjust.method = "bonferroni")
-wilcox_test_result_list[[i]]=wilcox_test_result
-
-write.csv(wilcox_test_result_list[[i]]$p.value,
-		  file=paste("output/sgNTC/0018_geneexp_violin_dot_boxplot_chart/0018_",gsub("/", "", i),"_violin_dot_boxplot_chart_Pvalue.csv"),
-		  na = "",row.names = T)
+qload("object/sgNTC/0018_geneexp_violin_dot_boxplot_chart.qs")
 
 p1=merged_df%>%
 ggplot(.,aes(x=assign_cluster,y= !!sym(i)))+
-    # 添加小提琴图（先绘制，作为背景层）
   geom_violin(
-    data = merged_df %>% dplyr::filter(!!sym(i) >= 0),  # 与箱线图相同的过滤条件
-    aes(fill = assign_cluster),   # 使用相同填充色
-    alpha = 1,                   # 调整透明度避免遮挡箱线图
-    color = NA,                    # 移除小提琴边框线
-    trim = TRUE,                   # 截断尾部以匹配数据范围
-    scale = "width"                # 统一宽度
+    data = merged_df %>% dplyr::filter(!!sym(i) >= 0),
+    aes(fill = assign_cluster),
+    alpha = 1,
+    color = NA,
+    trim = TRUE,
+    scale = "width"
   ) +
 	# 箱线图（覆盖在小提琴图上）
-	geom_boxplot(data = merged_df %>% dplyr::filter(!!sym(i) > 0),  # 过滤条件
-  	aes(fill = assign_cluster),  # 添加 fill 映射
-  	 fill = NA,         # 强制不填充颜色[6](@ref)
+	geom_boxplot(data = merged_df %>% dplyr::filter(!!sym(i) > 0),
+  	aes(fill = assign_cluster),
+  	 fill = NA,
   	notchwidth=1,
   	staplewidth=0,
     width = 0.3,
-    color = "black",             # 箱线边框颜色（避免默认灰色覆盖填充色）
-    size = 0.6,                  # 控制边缘线厚度（默认0.5，建议0.3-0.5）
+    color = "black",
+    size = 0.6,
     outliers=TRUE,
-    outlier.color = "black",      # 异常点颜色（可选）
-    outlier.size = 0.3  # 缩小异常点尺寸（默认2，建议设置为1-1.5）
+    outlier.color = "black",
+    outlier.size = 0.3 
     )+
-	# 散点图（最后绘制，显示在顶层）
 	 geom_jitter(
-    aes(color = "black"),  # 关键修改：颜色映射到分组变量
+    aes(color = "black"),
     width = 0.4,
-    alpha = 1,  # 调整透明度以增强可读性
-    size = 0.1     # 可选：调整散点大小
+    alpha = 1,
+    size = 0.1 
     )+
   theme_classic()+xlab("")+ylab(paste0(i," exp."))+
 	scale_fill_manual(values = cols) +
@@ -823,26 +463,13 @@ ggplot(.,aes(x=assign_cluster,y= !!sym(i)))+
   	  axis.title.x = element_text(size = 8, color = "black"),
   	  axis.title.y = element_text(size = 8, color = "black"),
   	  title = element_text(size = 8, color = "black"),
-  	  legend.position = "none", # "none" REMOVE legend
+  	  legend.position = "none",
 		  )
-p1
-
-print(paste0("Now save gene plot of ",i))
-pdf(paste("output/sgNTC/0018_geneexp_violin_dot_boxplot_chart/0018_",gsub("/", "", i),"_violin_dot_boxplot_chart.pdf", sep=""),width =5, height =3,compress=TRUE)
-print(p1)
-dev.off()
-
-graph2ppt(p1,paste("output/sgNTC/0018_geneexp_violin_dot_boxplot_chart/0018_",
-				gsub("/", "", i),"_violin_dot_boxplot_chart.pptx", sep=""),width =5, height =3)
 }
-qsavem(merged_df,
-	   mat_select,
-	   features,
-	   wilcox_test_result_list,
-	   cols,
-	  file="object/sgNTC/0018_geneexp_violin_dot_boxplot_chart.qs")
 
-qload("object/sgNTC/0018_geneexp_violin_dot_boxplot_chart.qs")
+qsavem(mygraph,
+	  file="object/sgNTC/0017_tfh_DRG_related_ligand_receptor_display_partly.qs")
+load(file = "J:\\00.keti\\000_FGT\\000_scRNAseq\\20240923_LCMV_sgNTC_vs_sgVps29/object/sgNTC/0017_tfh_DRG_related_ligand_receptor.Rdata")
 ```
 
 #pie chart of tfh ratio 
