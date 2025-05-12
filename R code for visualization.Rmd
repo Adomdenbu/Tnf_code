@@ -83,8 +83,6 @@ p <- ggplot(data, aes(x = id_all, y = features.plot)) +
         axis.title = element_blank())
 }
 }
-
-qload("J:\\00.keti\\000_FGT\\000_scRNAseq\\20240923_LCMV_sgNTC_vs_sgVps29/object/sgNTC/0009_1_Grouping_Dotplots.qs")
 ```
 
 #C2 GOterm_top20_gsea visualization
@@ -208,9 +206,6 @@ p1=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_
        y=c(""),
   	 x=paste0("-Log10(p value)"))
 }
-
-qsavem(gsea_results_df,
-	  file="object/sgNTC/0015_tfh_c1_vs_other_GOterm_top20_gsea.qs")
 ```
 
 #C1 gene log2FC vs. average expression dot plot
@@ -253,382 +248,14 @@ p2 <- ggplot(DEG_select, aes(x = RNA.c1, y = avg_log2FC, color = filter_display)
 }
 ```
 
-#C1 Neuron and wound healing
-```{r eval=FALSE, include=FALSE}
-load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
-load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
-f='object/sgNTC/tfh_c1_vs_other_GOterm_top20_gsea.Rdata'
-load(file = f)
-if(T){
-	#neuron related
-neuron_related=which(gsea_results[[1]]$ID %in% c("GOBP_CENTRAL_NERVOUS_SYSTEM_DEVELOPMENT",
-				 "GOBP_FOREBRAIN_DEVELOPMENT",
-				 "GOBP_HINDBRAIN_DEVELOPMENT",
-				 "GOBP_METENCEPHALON_DEVELOPMENT",
-				 "GOBP_NEURON_PROJECTION_REGENERATION",
-				 "GOBP_AXON_REGENERATION",
-				 "GOBP_DETECTION_OF_MECHANICAL_STIMULUS_INVOLVED_IN_SENSORY_PERCEPTION",
-				 "GOBP_NEURON_MATURATION"))
-
-#在表达矩阵中筛选并保留目标基因集中的核心基因：
-genes <- unlist(strsplit(gsea_results[[1]]$core_enrichment[neuron_related], "/"))
-if(T){
-gene_anno=read.csv(file = "input/Gene_classification/gene_anno_all.csv")
-
-##提取标准化表达矩阵
-mat=as.data.frame(GetAssayData(cells.cut,layer = 'scale.data'))%>%
-	rownames_to_column(var = "rowname")%>%
-	column_to_rownames(var = "rowname")
-dim(mat);mat[1:10,1:10]
-
-DEG_select_all <- c1_markers[rownames(c1_markers) %in% genes,]%>%
-	arrange(desc(avg_log2FC))%>%
-	rownames_to_column(var = "gene_name")%>%
-  left_join(gene_anno, by = c("gene_name" = "Gene_name"))  %>%
-  mutate(VariableFeatures_3000 = ifelse(gene_name %in% rownames(mat), T, F))%>%
-  select(gene_name,Gene_id,VariableFeatures_3000, everything())
-
-write.csv(DEG_select_all,
-		  file="output/sgNTC/0016_tfh_c1_vs_other_Neuron_all.csv",
-		  na = "",row.names = F)
-}
-
-DEG_select <- c1_markers[rownames(c1_markers) %in% genes,]%>%
-	#filter(p_val<=0.05)%>%
-	top_n(n=40,wt=avg_log2FC)%>% 
-	arrange(desc(avg_log2FC))%>%
-	rownames_to_column(var = "gene_name")
-
-DEG_select$gene_name <- factor(DEG_select$gene_name, 
-                                           levels = DEG_select$gene_name)
-if(T){
-p<-ggplot(DEG_select, aes(gene_name, avg_log2FC)) +
-  geom_col(position = position_dodge(width = 0.5), width = 0.6, linewidth = 0.5, 
-           fill="#65B0C6",colour = 'black') +
-  scale_x_discrete(position = "bottom") +
-	scale_y_continuous(position ="left",expand = c(0,0)) +
-	#scale_y_reverse(position ="left",expand = c(0,0))+
-  labs(x = 'Nerve interaction and regeneration', y = 'FC log2 (C1/other Tfh)') +
-  theme(panel.grid = element_blank(), 
-        axis.line = element_line(colour = "black",size=0.8),
-        panel.background = element_blank(), 
-        axis.text.x=element_text(size=12,color="black",angle = 90,hjust = 1,vjust =0.5,
-                                 face = "italic"),
-        axis.text.y = element_text(size = 12,colour = "black"),
-  	  axis.title.x = element_text(size = 14, hjust = 0.5),  # 调整 x 轴标题位置
-        axis.title.y=element_text(size=14),
-        axis.ticks.length=unit(0.1, "cm"),
-  )+
-  theme(plot.margin = unit(c(0.2,0.2,0.1,0.1),"cm"))
-pdf("output/sgNTC/0016_tfh_c1_vs_other_Neuron.pdf", w=8, h=3.5)
-print(p)
-dev.off()
-}
-}
-```
-
-#C1 Tissue repair and wound healing
-```{r eval=FALSE, include=FALSE}
-if(T){
-woundhealing_related=which(gsea_results[[1]]$ID %in% c(
-	"GOBP_MOLTING_CYCLE", 
-	"GOBP_APPENDAGE_MORPHOGENESIS",
-	"GOBP_ADHERENS_JUNCTION_ORGANIZATION", 
-	"GOBP_ACTIN_MEDIATED_CELL_CONTRACTION"))
-#在表达矩阵中筛选并保留目标基因集中的核心基因：
-genes <- unlist(strsplit(gsea_results[[1]]$core_enrichment[woundhealing_related], "/"))
-
-if(T){
-gene_anno=read.csv(file = "input/Gene_classification/gene_anno_all.csv")
-
-##提取标准化表达矩阵
-mat=as.data.frame(GetAssayData(cells.cut,layer = 'scale.data'))%>%
-	rownames_to_column(var = "rowname")%>%
-	column_to_rownames(var = "rowname")
-dim(mat);mat[1:10,1:10]
-
-DEG_select_all <- c1_markers[rownames(c1_markers) %in% genes,]%>%
-	arrange(desc(avg_log2FC))%>%
-	rownames_to_column(var = "gene_name")%>%
-  left_join(gene_anno, by = c("gene_name" = "Gene_name"))  %>%
-  mutate(VariableFeatures_3000 = ifelse(gene_name %in% rownames(mat), T, F))%>%
-  select(gene_name,Gene_id,VariableFeatures_3000, everything())
-
-write.csv(DEG_select_all,
-		  file="output/sgNTC/0016_tfh_c1_vs_other_wound_healing_all.csv",
-		  na = "",row.names = F)
-}
-DEG_select <- c1_markers[rownames(c1_markers) %in% genes,]%>%
-	#filter(p_val<=0.05)%>%
-	top_n(n=40,wt=avg_log2FC)%>% 
-	arrange(desc(avg_log2FC))%>%
-	rownames_to_column(var = "gene_name")
-
-DEG_select$gene_name <- factor(DEG_select$gene_name, 
-                                           levels = DEG_select$gene_name)
-if(T){
-p<-ggplot(DEG_select, aes(gene_name, avg_log2FC)) +
-  geom_col(position = position_dodge(width = 0.5), width = 0.6, linewidth = 0.5, 
-           fill="#ffd400",colour = 'black') +
-  scale_x_discrete(position = "top") +
-	#scale_y_continuous(position ="left",expand = c(0,0)) +
-	scale_y_reverse(position ="left",expand = c(0,0))+
-  labs(x = 'Tissue repair and wound healing', y = 'FC log2 (C1/other Tfh)') +
-  theme(panel.grid = element_blank(), 
-        axis.line = element_line(colour = "black",size=0.8),
-        panel.background = element_blank(), 
-        axis.text.x=element_text(size=12,color="black",angle = 90, hjust =0, vjust =0.5,
-                                 face = "italic"),
-        axis.text.y = element_text(size = 12,colour = "black"),
-  	  axis.title.x = element_text(size = 14, hjust = 0.5),  # 调整 x 轴标题位置
-        axis.title.y=element_text(size=14),
-        axis.ticks.length=unit(0.1, "cm"),
-  )+
-  theme(plot.margin = unit(c(0.2,0.2,0.1,0.1),"cm"))
-pdf("output/sgNTC/0016_tfh_c1_vs_other_wound_healing.pdf", w=8, h=3.5)
-print(p)
-dev.off()
-}
-}
-```
-
-#C3 Running GSEA
-
-```{r eval=FALSE, include=FALSE}
-load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
-
-suppressPackageStartupMessages({
-library(clusterProfiler)
-library(tidyverse)
-library(ggplot2)
-library(org.Hs.eg.db)
-library(org.Mm.eg.db)
-})
-geneList=c3_markers$avg_log2FC
-names(geneList)=rownames(c3_markers)
-geneList=sort(geneList,decreasing = T)
-  #选择gmt文件（MigDB中的全部基因集）
-  d='input/gmt/'
-  gmts <- list.files(d,pattern = 'gmt')
-  gmts
-  #GSEA分析
-if(T){
-  library(GSEABase) 
-  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
-    if(T){
-    gsea_results <- lapply(gmts, function(gmtfile){
-      # gmtfile=gmts[2]
-      geneset <- read.gmt(file.path(d,gmtfile)) 
-      print(paste0('Now process the ',gmtfile))
-      egmt <- GSEA(geneList, TERM2GENE=geneset, 
-      			 eps=0,
-                   pvalueCutoff = 1, verbose=FALSE)
-      return(egmt)
-    })
-    }
-  #提取gsea结果，熟悉这个对象
-  gsea_results_list<- lapply(gsea_results, function(x){
-    cat(paste(dim(x@result)),'\n')
-    x@result
-  })
-  gsea_results_df <- do.call(rbind, gsea_results_list)
-  # gsea_results_df.cutp = gsea_results_df %>%
-  #   filter(abs(NES)>=1 & (p.adjust<0.05))
- niceTit <- purrr::map_chr(gsea_results_df$Description, 
-                            function(x,termWidth = 600, rmPrefix = TRUE) {
-      tit <- unlist(strsplit(x, split = "_"))
-      if (length(tit) == 1) {
-         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-      }
-      else {
-         if (rmPrefix == TRUE) {
-            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-         else {
-            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-      }
-      # 最后一步，将句子首字母大写
-    niceTit <- stringr::str_to_sentence(niceTit)
-    return(niceTit)
-   })
- niceTit
- gsea_results_df$Description=niceTit
-  write.csv(gsea_results_df, 
-            file ="output/sgNTC/0013_tfh_c3_vs_other_gsea.csv")
-  
-   f='object/sgNTC/tfh_c3_vs_other_gsea.Rdata'
-  save(gsea_results,
-       gsea_results_df,
-       file = f)
-  load(file = f)
-}
-```
-
-#C3 creat TOP20 GO term custom gene set
-
-```{r eval=FALSE, include=FALSE}
-suppressPackageStartupMessages({
-	library(clusterProfiler)
-	library(tidyverse)
-	library(ggplot2)
-	library(org.Hs.eg.db)
-	library(org.Mm.eg.db)
-	library(GSEABase)
-})
-
-geneset <- read.gmt(file.path("input/gmt/msigdb.v2023.2.Mm.symbols.gmt"))
-if(T){
-pathways=list()
-target_term <- c("GOBP_TRANSLATION_AT_SYNAPSE",
-				 "GOBP_ATP_SYNTHESIS_COUPLED_ELECTRON_TRANSPORT",
-				 "GOBP_NADH_DEHYDROGENASE_COMPLEX_ASSEMBLY",
-				 "GOBP_RIBOSOMAL_LARGE_SUBUNIT_BIOGENESIS",
-				 "GOBP_CELLULAR_ALDEHYDE_METABOLIC_PROCESS",
-				 "GOBP_HEXOSE_CATABOLIC_PROCESS",
-				 "GOBP_NUCLEOSIDE_MONOPHOSPHATE_BIOSYNTHETIC_PROCESS",
-				 "GOBP_SPLICEOSOMAL_SNRNP_ASSEMBLY",
-				 "GOBP_PROTEIN_TARGETING_TO_MITOCHONDRION",
-				 "GOBP_CYTOCHROME_COMPLEX_ASSEMBLY",
-				 "GOBP_PROTEIN_INSERTION_INTO_MEMBRANE",
-				 "GOBP_TRICARBOXYLIC_ACID_CYCLE",
-				 "GOBP_IRON_SULFUR_CLUSTER_ASSEMBLY",
-				 "GOBP_INNER_MITOCHONDRIAL_MEMBRANE_ORGANIZATION",
-				 "GOBP_ANTIMICROBIAL_HUMORAL_RESPONSE",
-				 "GOBP_REGULATION_OF_AEROBIC_RESPIRATION",
-				 "GOBP_HEME_METABOLIC_PROCESS",
-				 "GOBP_CELL_REDOX_HOMEOSTASIS",
-				 "GOBP_REGULATION_OF_INFLAMMATORY_RESPONSE_TO_ANTIGENIC_STIMULUS",
-				 "GOBP_REGULATION_OF_CELLULAR_RESPIRATION") #20
-for(i in target_term) {
-	pathways[[i]] <- geneset[geneset$term == i, "gene"]
-	# 展平基因列表
-	pathways[[i]] <- unlist(pathways[[i]])
-}
-
-# 创建一个 GMT 文件
-dir.create("input/gmt/GO_term_c3_top")
-gmt_file_path <- "input/gmt/GO_term_c3_top/GO_term_top_pathways_sgNTC_c3_Top20.gmt"
-
-# 构造数据帧
-data_rows <- lapply(names(pathways), function(name) {
-  genes <- pathways[[name]]
-  data.frame(
-    GeneSetName = name,
-    GeneSetDescription = name,
-    gene_names = genes,
-    stringsAsFactors = FALSE)
-})
-
-# 合并所有行
-data_df <- do.call(rbind, data_rows)
-
-# 写入 GMT 文件
-write.table(data_df,
-            file = gmt_file_path,
-            row.names = FALSE,
-            col.names = FALSE,
-            sep = "\t",
-            quote = FALSE
-)
-}
-```
-
-#C3 Running GSEA Based on TOP20 GO Terms
-
-```{r eval=FALSE, include=FALSE}
-rm(list=ls());gc()
-load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
-geneList=c3_markers$avg_log2FC
-names(geneList)=rownames(c3_markers)
-geneList=sort(geneList,decreasing = T)
-  #选择gmt文件（MigDB中的全部基因集）
-  d='input/gmt/GO_term_c3_top/'
-  gmts <- list.files(d,pattern = 'GO_term_top_pathways_sgNTC_c3_Top20.gmt')
-  gmts
-  #GSEA分析
-if(T){
-  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
-    if(T){
-    gsea_results <- lapply(gmts, function(gmtfile){
-      # gmtfile=gmts[2]
-      geneset <- read.gmt(file.path(d,gmtfile)) 
-      print(paste0('Now process the ',gmtfile))
-      egmt <- GSEA(geneList, TERM2GENE=geneset, 
-      			 eps=0,
-                   pvalueCutoff = 1, verbose=FALSE)
-      return(egmt)
-    })
-    }
-  #提取gsea结果，熟悉这个对象
-  gsea_results_list<- lapply(gsea_results, function(x){
-    cat(paste(dim(x@result)),'\n')
-    x@result
-  })
-  gsea_results_df <- do.call(rbind, gsea_results_list)
-  # gsea_results_df.cutp = gsea_results_df %>%
-  #   filter(abs(NES)>=1 & (p.adjust<0.05))
- niceTit <- purrr::map_chr(unique(gsea_results_df$Description), 
-                            function(x,termWidth = 600, rmPrefix = TRUE) {
-      tit <- unlist(strsplit(x, split = "_"))
-      if (length(tit) == 1) {
-         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-      }
-      else {
-         if (rmPrefix == TRUE) {
-            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-         else {
-            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-      }
-      # 最后一步，将句子首字母大写
-    niceTit <- stringr::str_to_sentence(niceTit)
-    return(niceTit)
-   })
- gsea_results_df$Description=niceTit
-  write.csv(gsea_results_df, 
-            file ="output/sgNTC/0014_tfh_c3_vs_other_GOterm_top20_gsea.csv")
-  
-   f='object/sgNTC/tfh_c3_vs_other_GOterm_top20_gsea.Rdata'
-  save(gsea_results,
-       gsea_results_df,
-       file = f)
-  load(file = f)
-}
-```
-
 #C3 GOterm_top20_gsea visualization
 
 ```{r eval=FALSE, include=FALSE}
-rm(list=ls());gc()
-f='object/sgNTC/tfh_c3_vs_other_GOterm_top20_gsea.Rdata'
-load(file = f)
+qload("object/sgNTC/0016_tfh_c3_vs_other_GOterm_top20_gsea.qs")
 
-gsea_results_df=gsea_results_df%>% 
-	arrange(pvalue)
-gsea_results_df$Description <- factor(gsea_results_df$Description, 
-                                           levels = gsea_results_df$Description)
-#1:Nerve interaction and regeneration
-#2:Tissue repair and wound healing
-#3:other
-gsea_results_df$path_group=c(1,3,3,3,
-							 3,3,3,3,
-							 3,3,3,3,
-							 3,3,3,3,
-							 3,3,3,3)
-gsea_results_df$path_group <- factor(gsea_results_df$path_group, 
-                                           levels = c(1,3))
 if(T){
 p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
   geom_bar(stat = "identity", width = 0.7, colour = "black")+
-  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
   theme_classic()+
   theme(axis.text.y = element_text(colour = 'black', size = 14),
         axis.ticks.y = element_blank(),
@@ -637,258 +264,26 @@ p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_g
         axis.text.x = element_text(colour = 'black', size = 14),
         axis.ticks.x = element_line(colour = 'black'),
         axis.title.x = element_text(colour = 'black', size = 14),
-  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)),  # 左对齐并增加下边距
-  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
+  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)), 
+  	  plot.title.position = "plot",  
         legend.position = "none")+ 
   scale_x_continuous(expand = c(0,0))+
   scale_fill_manual(values = c("#65B0C6","white"))+
-  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+   
   labs(title = "GO terms enriched in c3 vs other Tfh",
        y=c(""),
   	 x=c("-log10(p-value)"))
-pdf("output/sgNTC/0015_tfh_c3_vs_other_GOterm_top20_gsea.pdf", w=8, h=7)
-print(p)
-dev.off()
-}
-```
-
-#C4 Running GSEA
-
-```{r eval=FALSE, include=FALSE}
-load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
-
-suppressPackageStartupMessages({
-library(clusterProfiler)
-library(tidyverse)
-library(ggplot2)
-library(org.Hs.eg.db)
-library(org.Mm.eg.db)
-})
-geneList=c4_markers$avg_log2FC
-names(geneList)=rownames(c4_markers)
-geneList=sort(geneList,decreasing = T)
-  #选择gmt文件（MigDB中的全部基因集）
-  d='input/gmt/'
-  gmts <- list.files(d,pattern = 'gmt')
-  gmts
-  #GSEA分析
-if(T){
-  library(GSEABase) 
-  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
-    if(T){
-    gsea_results <- lapply(gmts, function(gmtfile){
-      # gmtfile=gmts[2]
-      geneset <- read.gmt(file.path(d,gmtfile)) 
-      print(paste0('Now process the ',gmtfile))
-      egmt <- GSEA(geneList, TERM2GENE=geneset, 
-      			 eps=0,
-                   pvalueCutoff = 1, verbose=FALSE)
-      return(egmt)
-    })
-    }
-  #提取gsea结果，熟悉这个对象
-  gsea_results_list<- lapply(gsea_results, function(x){
-    cat(paste(dim(x@result)),'\n')
-    x@result
-  })
-  gsea_results_df <- do.call(rbind, gsea_results_list)
-  # gsea_results_df.cutp = gsea_results_df %>%
-  #   filter(abs(NES)>=1 & (p.adjust<0.05))
- niceTit <- purrr::map_chr(gsea_results_df$Description, 
-                            function(x,termWidth = 600, rmPrefix = TRUE) {
-      tit <- unlist(strsplit(x, split = "_"))
-      if (length(tit) == 1) {
-         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-      }
-      else {
-         if (rmPrefix == TRUE) {
-            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-         else {
-            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-      }
-      # 最后一步，将句子首字母大写
-    niceTit <- stringr::str_to_sentence(niceTit)
-    return(niceTit)
-   })
- niceTit
- gsea_results_df$Description=niceTit
-  write.csv(gsea_results_df, 
-            file ="output/sgNTC/0013_tfh_c4_vs_other_gsea.csv")
-  
-   f='object/sgNTC/tfh_c4_vs_other_gsea.Rdata'
-  save(gsea_results,
-       gsea_results_df,
-       file = f)
-  load(file = f)
-}
-```
-
-#C4 creat TOP20 GO term custom gene set
-
-```{r eval=FALSE, include=FALSE}
-suppressPackageStartupMessages({
-	library(clusterProfiler)
-	library(tidyverse)
-	library(ggplot2)
-	library(org.Hs.eg.db)
-	library(org.Mm.eg.db)
-	library(GSEABase)
-})
-
-geneset <- read.gmt(file.path("input/gmt/msigdb.v2023.2.Mm.symbols.gmt"))
-if(T){
-pathways=list()
-target_term <- c("GOBP_LEUKOCYTE_MEDIATED_CYTOTOXICITY",
-"GOBP_CELL_KILLING",
-"GOBP_NATURAL_KILLER_CELL_ACTIVATION",
-"GOBP_RESPONSE_TO_TUMOR_CELL",
-"GOBP_INFLAMMATORY_CELL_APOPTOTIC_PROCESS",
-"GOBP_CYTOCHROME_COMPLEX_ASSEMBLY",
-"GOBP_GRANULOCYTE_ACTIVATION",
-"GOBP_APOPTOTIC_CELL_CLEARANCE",
-"GOBP_RESPONSE_TO_CHEMOKINE",
-"GOBP_MONOAMINE_TRANSPORT",
-"GOBP_INTEGRIN_MEDIATED_SIGNALING_PATHWAY",
-"GOBP_CELLULAR_EXTRAVASATION",
-"GOBP_REGULATION_OF_SMOOTH_MUSCLE_CONTRACTION",
-"GOBP_PLASMA_MEMBRANE_REPAIR",
-"GOBP_CYTOKINETIC_PROCESS",
-"GOBP_MITOCHONDRIAL_TRANSLATION",
-"GOBP_CELLULAR_RESPONSE_TO_TYPE_II_INTERFERON",
-"GOBP_PROTEIN_LOCALIZATION_TO_CELL_SURFACE",
-"GOBP_MITOTIC_CYTOKINESIS",
-"GOBP_ADAPTIVE_IMMUNE_RESPONSE") #20
-for(i in target_term) {
-	pathways[[i]] <- geneset[geneset$term == i, "gene"]
-	# 展平基因列表
-	pathways[[i]] <- unlist(pathways[[i]])
 }
 
-# 创建一个 GMT 文件
-dir.create("input/gmt/GO_term_c4_top")
-gmt_file_path <- "input/gmt/GO_term_c4_top/GO_term_top_pathways_sgNTC_c4_Top20.gmt"
-
-# 构造数据帧
-data_rows <- lapply(names(pathways), function(name) {
-  genes <- pathways[[name]]
-  data.frame(
-    GeneSetName = name,
-    GeneSetDescription = name,
-    gene_names = genes,
-    stringsAsFactors = FALSE)
-})
-
-# 合并所有行
-data_df <- do.call(rbind, data_rows)
-
-# 写入 GMT 文件
-write.table(data_df,
-            file = gmt_file_path,
-            row.names = FALSE,
-            col.names = FALSE,
-            sep = "\t",
-            quote = FALSE
-)
-}
-```
-
-#C4 Running GSEA Based on TOP20 GO Terms
-
-```{r eval=FALSE, include=FALSE}
-rm(list=ls());gc()
-load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
-geneList=c4_markers$avg_log2FC
-names(geneList)=rownames(c4_markers)
-geneList=sort(geneList,decreasing = T)
-  #选择gmt文件（MigDB中的全部基因集）
-  d='input/gmt/GO_term_c4_top/'
-  gmts <- list.files(d,pattern = 'GO_term_top_pathways_sgNTC_c4_Top20.gmt')
-  gmts
-  #GSEA分析
-if(T){
-  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
-    if(T){
-    gsea_results <- lapply(gmts, function(gmtfile){
-      # gmtfile=gmts[2]
-      geneset <- read.gmt(file.path(d,gmtfile)) 
-      print(paste0('Now process the ',gmtfile))
-      egmt <- GSEA(geneList, TERM2GENE=geneset, 
-      			 eps=0,
-                   pvalueCutoff = 1, verbose=FALSE)
-      return(egmt)
-    })
-    }
-  #提取gsea结果，熟悉这个对象
-  gsea_results_list<- lapply(gsea_results, function(x){
-    cat(paste(dim(x@result)),'\n')
-    x@result
-  })
-  gsea_results_df <- do.call(rbind, gsea_results_list)
-  # gsea_results_df.cutp = gsea_results_df %>%
-  #   filter(abs(NES)>=1 & (p.adjust<0.05))
- niceTit <- purrr::map_chr(unique(gsea_results_df$Description), 
-                            function(x,termWidth = 600, rmPrefix = TRUE) {
-      tit <- unlist(strsplit(x, split = "_"))
-      if (length(tit) == 1) {
-         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-      }
-      else {
-         if (rmPrefix == TRUE) {
-            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-         else {
-            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-      }
-      # 最后一步，将句子首字母大写
-    niceTit <- stringr::str_to_sentence(niceTit)
-    return(niceTit)
-   })
- gsea_results_df$Description=niceTit
-  write.csv(gsea_results_df, 
-            file ="output/sgNTC/0014_tfh_c4_vs_other_GOterm_top20_gsea.csv")
-  
-   f='object/sgNTC/tfh_c4_vs_other_GOterm_top20_gsea.Rdata'
-  save(gsea_results,
-       gsea_results_df,
-       file = f)
-  load(file = f)
-}
 ```
 
 #C4 GOterm_top20_gsea visualization
-
 ```{r eval=FALSE, include=FALSE}
-rm(list=ls());gc()
-f='object/sgNTC/tfh_c4_vs_other_GOterm_top20_gsea.Rdata'
-load(file = f)
+qload(file="object/sgNTC/0016_tfh_c4_vs_other_GOterm_top20_gsea.qs")
 
-gsea_results_df=gsea_results_df%>% 
-	arrange(pvalue)
-gsea_results_df$Description <- factor(gsea_results_df$Description, 
-                                           levels = gsea_results_df$Description)
-#1:Nerve interaction and regeneration
-#2:Tissue repair and wound healing
-#3:other
-gsea_results_df$path_group=c(3,3,3,3,
-							 3,3,3,3,
-							 3,3,3,3,
-							 3,3,3,3,
-							 3,3,3,3)
-gsea_results_df$path_group <- factor(gsea_results_df$path_group, 
-                                           levels = c(3))
 if(T){
 p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
   geom_bar(stat = "identity", width = 0.7, colour = "black")+
-  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
   theme_classic()+
   theme(axis.text.y = element_text(colour = 'black', size = 14),
         axis.ticks.y = element_blank(),
@@ -897,258 +292,26 @@ p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_g
         axis.text.x = element_text(colour = 'black', size = 14),
         axis.ticks.x = element_line(colour = 'black'),
         axis.title.x = element_text(colour = 'black', size = 14),
-  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)),  # 左对齐并增加下边距
-  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
+  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)), 
+  	  plot.title.position = "plot", 
         legend.position = "none")+ 
   scale_x_continuous(expand = c(0,0))+
   scale_fill_manual(values = c("white"))+
-  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+ 
   labs(title = "GO terms enriched in c4 vs other Tfh",
        y=c(""),
   	 x=c("-log10(p-value)"))
-pdf("output/sgNTC/0015_tfh_c4_vs_other_GOterm_top20_gsea.pdf", w=7, h=7)
-print(p)
-dev.off()
-}
-```
-
-#C5 Running GSEA
-
-```{r eval=FALSE, include=FALSE}
-load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
-
-suppressPackageStartupMessages({
-library(clusterProfiler)
-library(tidyverse)
-library(ggplot2)
-library(org.Hs.eg.db)
-library(org.Mm.eg.db)
-})
-geneList=c5_markers$avg_log2FC
-names(geneList)=rownames(c5_markers)
-geneList=sort(geneList,decreasing = T)
-  #选择gmt文件（MigDB中的全部基因集）
-  d='input/gmt/'
-  gmts <- list.files(d,pattern = 'gmt')
-  gmts
-  #GSEA分析
-if(T){
-  library(GSEABase) 
-  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
-    if(T){
-    gsea_results <- lapply(gmts, function(gmtfile){
-      # gmtfile=gmts[2]
-      geneset <- read.gmt(file.path(d,gmtfile)) 
-      print(paste0('Now process the ',gmtfile))
-      egmt <- GSEA(geneList, TERM2GENE=geneset, 
-      			 eps=0,
-                   pvalueCutoff = 1, verbose=FALSE)
-      return(egmt)
-    })
-    }
-  #提取gsea结果，熟悉这个对象
-  gsea_results_list<- lapply(gsea_results, function(x){
-    cat(paste(dim(x@result)),'\n')
-    x@result
-  })
-  gsea_results_df <- do.call(rbind, gsea_results_list)
-  # gsea_results_df.cutp = gsea_results_df %>%
-  #   filter(abs(NES)>=1 & (p.adjust<0.05))
- niceTit <- purrr::map_chr(gsea_results_df$Description, 
-                            function(x,termWidth = 600, rmPrefix = TRUE) {
-      tit <- unlist(strsplit(x, split = "_"))
-      if (length(tit) == 1) {
-         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-      }
-      else {
-         if (rmPrefix == TRUE) {
-            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-         else {
-            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-      }
-      # 最后一步，将句子首字母大写
-    niceTit <- stringr::str_to_sentence(niceTit)
-    return(niceTit)
-   })
- niceTit
- gsea_results_df$Description=niceTit
-  write.csv(gsea_results_df, 
-            file ="output/sgNTC/0013_tfh_c5_vs_other_gsea.csv")
-  
-   f='object/sgNTC/tfh_c5_vs_other_gsea.Rdata'
-  save(gsea_results,
-       gsea_results_df,
-       file = f)
-  load(file = f)
-}
-```
-
-#C5 creat TOP20 GO term custom gene set
-
-```{r eval=FALSE, include=FALSE}
-suppressPackageStartupMessages({
-	library(clusterProfiler)
-	library(tidyverse)
-	library(ggplot2)
-	library(org.Hs.eg.db)
-	library(org.Mm.eg.db)
-	library(GSEABase)
-})
-
-geneset <- read.gmt(file.path("input/gmt/msigdb.v2023.2.Mm.symbols.gmt"))
-if(T){
-pathways=list()
-target_term <- c("GOBP_NEUTROPHIL_HOMEOSTASIS",
-"GOBP_LEUKOCYTE_MEDIATED_CYTOTOXICITY",
-"GOBP_INTEGRIN_MEDIATED_SIGNALING_PATHWAY",
-"GOBP_REGULATION_OF_VASOCONSTRICTION",
-"GOBP_INFLAMMATORY_CELL_APOPTOTIC_PROCESS",
-"GOBP_CELL_KILLING",
-"GOBP_REGULATION_OF_SMOOTH_MUSCLE_CONTRACTION",
-"GOBP_CELLULAR_EXTRAVASATION",
-"GOBP_MEMBRANE_FISSION",
-"GOBP_RESPONSE_TO_INTERFERON_BETA",
-"GOBP_REGULATION_OF_NATURAL_KILLER_CELL_ACTIVATION",
-"GOBP_GLIAL_CELL_MIGRATION",
-"GOBP_VESICLE_DOCKING",
-"GOBP_SECRETORY_GRANULE_ORGANIZATION",
-"GOBP_RESPONSE_TO_CHEMOKINE",
-"GOBP_TOLERANCE_INDUCTION",
-"GOBP_RESPONSE_TO_INTERFERON_ALPHA",
-"GOBP_CELL_ADHESION_MEDIATED_BY_INTEGRIN",
-"GOBP_REGULATION_OF_NEURAL_PRECURSOR_CELL_PROLIFERATION",
-"GOBP_G_PROTEIN_COUPLED_RECEPTOR_SIGNALING_PATHWAY") #20
-for(i in target_term) {
-	pathways[[i]] <- geneset[geneset$term == i, "gene"]
-	# 展平基因列表
-	pathways[[i]] <- unlist(pathways[[i]])
-}
-
-# 创建一个 GMT 文件
-dir.create("input/gmt/GO_term_c5_top")
-gmt_file_path <- "input/gmt/GO_term_c5_top/GO_term_top_pathways_sgNTC_c5_Top20.gmt"
-
-# 构造数据帧
-data_rows <- lapply(names(pathways), function(name) {
-  genes <- pathways[[name]]
-  data.frame(
-    GeneSetName = name,
-    GeneSetDescription = name,
-    gene_names = genes,
-    stringsAsFactors = FALSE)
-})
-
-# 合并所有行
-data_df <- do.call(rbind, data_rows)
-
-# 写入 GMT 文件
-write.table(data_df,
-            file = gmt_file_path,
-            row.names = FALSE,
-            col.names = FALSE,
-            sep = "\t",
-            quote = FALSE
-)
-}
-```
-
-#C5 Running GSEA Based on TOP20 GO Terms
-
-```{r eval=FALSE, include=FALSE}
-rm(list=ls());gc()
-load(file = 'object/sgNTC/DEG_c1-c5.Rdata')
-geneList=c5_markers$avg_log2FC
-names(geneList)=rownames(c5_markers)
-geneList=sort(geneList,decreasing = T)
-  #选择gmt文件（MigDB中的全部基因集）
-  d='input/gmt/GO_term_c5_top/'
-  gmts <- list.files(d,pattern = 'GO_term_top_pathways_sgNTC_c5_Top20.gmt')
-  gmts
-  #GSEA分析
-if(T){
-  ## 下面使用lapply循环读取每个gmt文件，并且进行GSEA分析
-    if(T){
-    gsea_results <- lapply(gmts, function(gmtfile){
-      # gmtfile=gmts[2]
-      geneset <- read.gmt(file.path(d,gmtfile)) 
-      print(paste0('Now process the ',gmtfile))
-      egmt <- GSEA(geneList, TERM2GENE=geneset, 
-      			 eps=0,
-                   pvalueCutoff = 1, verbose=FALSE)
-      return(egmt)
-    })
-    }
-  #提取gsea结果，熟悉这个对象
-  gsea_results_list<- lapply(gsea_results, function(x){
-    cat(paste(dim(x@result)),'\n')
-    x@result
-  })
-  gsea_results_df <- do.call(rbind, gsea_results_list)
-  # gsea_results_df.cutp = gsea_results_df %>%
-  #   filter(abs(NES)>=1 & (p.adjust<0.05))
- niceTit <- purrr::map_chr(unique(gsea_results_df$Description), 
-                            function(x,termWidth = 600, rmPrefix = TRUE) {
-      tit <- unlist(strsplit(x, split = "_"))
-      if (length(tit) == 1) {
-         niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-            collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-      }
-      else {
-         if (rmPrefix == TRUE) {
-            niceTit <- paste(stringr::str_to_title(tit[2:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-         else {
-            niceTit <- paste(stringr::str_to_title(tit[1:length(tit)]), 
-               collapse = " ") %>% stringr::str_wrap(., width = termWidth)
-         }
-      }
-      # 最后一步，将句子首字母大写
-    niceTit <- stringr::str_to_sentence(niceTit)
-    return(niceTit)
-   })
- gsea_results_df$Description=niceTit
-  write.csv(gsea_results_df, 
-            file ="output/sgNTC/0014_tfh_c5_vs_other_GOterm_top20_gsea.csv")
-  
-   f='object/sgNTC/tfh_c5_vs_other_GOterm_top20_gsea.Rdata'
-  save(gsea_results,
-       gsea_results_df,
-       file = f)
-  load(file = f)
 }
 ```
 
 #C5 GOterm_top20_gsea visualization
 
 ```{r eval=FALSE, include=FALSE}
-rm(list=ls());gc()
-f='object/sgNTC/tfh_c5_vs_other_GOterm_top20_gsea.Rdata'
-load(file = f)
+qload(file="object/sgNTC/0016_tfh_c5_vs_other_GOterm_top20_gsea.qs")
 
-gsea_results_df=gsea_results_df%>% 
-	arrange(pvalue)
-gsea_results_df$Description <- factor(gsea_results_df$Description, 
-                                           levels = gsea_results_df$Description)
-#1:Nerve interaction and regeneration
-#2:Tissue repair and wound healing
-#3:other
-gsea_results_df$path_group=c(3,3,3,3,
-							 3,3,3,3,
-							 3,1,3,3,
-							 3,3,3,3,
-							 3,1,3,3)
-gsea_results_df$path_group <- factor(gsea_results_df$path_group, 
-                                           levels = c(1,3))
 if(T){
 p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
   geom_bar(stat = "identity", width = 0.7, colour = "black")+
-  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
   theme_classic()+
   theme(axis.text.y = element_text(colour = 'black', size = 14),
         axis.ticks.y = element_blank(),
@@ -1157,117 +320,25 @@ p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_g
         axis.text.x = element_text(colour = 'black', size = 14),
         axis.ticks.x = element_line(colour = 'black'),
         axis.title.x = element_text(colour = 'black', size = 14),
-  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)),  # 左对齐并增加下边距
-  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
+  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)),
+  	  plot.title.position = "plot",  
         legend.position = "none")+ 
   scale_x_continuous(expand = c(0,0))+
   scale_fill_manual(values = c("#65B0C6","white"))+
-  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+ 
   labs(title = "GO terms enriched in c5 vs other Tfh",
        y=c(""),
   	 x=c("-log10(p-value)"))
-pdf("output/sgNTC/0015_tfh_c5_vs_other_GOterm_top20_gsea.pdf", w=7, h=7)
-print(p)
-dev.off()
 }
 ```
 
-#ligand-receptor analysis全图
+#ligand-receptor analysis
 ```{r eval=FALSE, include=FALSE}
-#devtools::install_github("jinworks/CellChat")
-suppressPackageStartupMessages({
-	library(CellChat)
-	library(patchwork)}
-	)
-
-load(file = "J:/00.keti/000_FGT/000_RNAseq/RNA-seq_LCMV_DRG_5v5_20241217/object/001_DRG_LCMV_receptor_expression.Rdata")
-load(file = 'object/sgNTC/combined_seurat_filtered.Rdata')
-
-
-CellChatDB <- CellChatDB.mouse 
-# use CellChatDB.human/CellChatDB.mouse if running on human/mouse data
-showDatabaseCategory(CellChatDB)
-
-CellChatDB_df=as.data.frame(CellChatDB$interaction)
-write.csv(CellChatDB_df, 
-            file ="output/sgNTC/0017_CellChatDB_ligand_receptor.csv")
-
-row.names(df_scaled)
-names(CellChatDB_df)
-LCMV_DRG_receptor=CellChatDB_df%>%
-	dplyr::filter(grepl(paste(row.names(df_scaled), collapse = "|"), 
-				 interaction_name, ignore.case = TRUE))
-
-filter01 <- sapply(LCMV_DRG_receptor$ligand, function(lig) {
-  split_parts <- unlist(strsplit(toupper(lig), "_"))
-  any(split_parts %in% toupper(row.names(df_scaled)))
-})
-filter02 <- sapply(LCMV_DRG_receptor$receptor, function(lig) {
-  split_parts <- unlist(strsplit(toupper(lig), "_"))
-  any(split_parts %in% toupper(row.names(df_scaled)))
-})
-
-gene_name=unique(stringr::str_to_sentence(unlist(strsplit(c(
-	LCMV_DRG_receptor$receptor[filter01],
-	LCMV_DRG_receptor$ligand[filter02]), "_"))))
-
-gene_name1=gene_name[gene_name %in% rownames(cells.cut)]
-#gene_name1[c(45,46)]=c("Il12a","Il23a")
-if(T){
-p_dot_lig = DotPlot(cells.cut,
-					features = gene_name1,
-					group.by = 'assign_cluster',
-					 cols = c("#328ca9", "#F60000FF"))+
-  RotatedAxis()+NoLegend()
-pdf("output/sgNTC/0017_tfh_DRG_related_ligand_receptor.pdf", w=20, h=5)
-print(p_dot_lig)
-dev.off()
-}
+qload("object/sgNTC/0017_tfh_DRG_related_ligand_receptor.qs")
 
 if(T){
-dat_lig = p_dot_lig$data;head(dat_lig)
-ord_lig = dat_lig %>%  pull(features.plot) %>% levels()
-
-dat_lig1 =dat_lig %>% 
-  mutate(lig_type = case_when(features.plot== "Btla" ~'type1',
-                              features.plot== "Icam1" ~'type2',
-                              features.plot== "Itgb2" ~'type3',
-  							features.plot== "Itgal" ~'type4',
-  							features.plot== "Il21" ~'type5',
-  							features.plot== "Itgb1" ~'type6',
-  							features.plot== "Cd40lg" ~'type7',
-                              TRUE ~'none'))
-
-head(dat_lig1)
-pal_use = pal_aaas()(7)
-se_lig = data.frame(lig = c('Btla','Icam1','Itgb2','Itgal','Il21',"Itgb1","Cd40lg")) %>% 
-  mutate(colo =pal_use[1:nrow(.)])
-
-df_ord_lig = data.frame(lig = ord_lig) %>% 
-  left_join(se_lig,by='lig') %>% 
-  mutate(colo = ifelse(is.na(colo),'black',colo)) %>% 
-  mutate(coordy = 1:nrow(.)) %>% 
-  mutate(end_type = c(rep(Inf,19),'c4',
-                      rep(Inf,5),'c5',
-  					rep(Inf,40),'c1',
-  					rep(Inf,10),'c1',
-  					rep(Inf,5),'c1',
-  					rep(Inf,12),'c2',
-  					rep(Inf,9),'c1',
-  					rep(Inf,7)))
-
-df_map = se_lig %>% 
-  left_join(df_ord_lig %>% 
-              dplyr::select(c('lig','coordy')),by='lig') %>% 
-  dplyr::select(-colo)
-
-coldf_ligtype=data.frame(group=unique(dat_lig1$lig_type)[order(unique(dat_lig1$lig_type))]) %>% 
-  mutate(mycol=c('white',pal_use))
-
 scale_color_ligtype<- function(...){ggplot2:::manual_scale('color',
                                                            values = setNames(coldf_ligtype$mycol, coldf_ligtype$group),...)}
-
-names(dat_lig1)
 
 if(T){
 p3 = ggplot(dat_lig1,aes(id,features.plot,fill = avg.exp.scaled,size =pct.exp))+
@@ -1315,22 +386,12 @@ p3 = ggplot(dat_lig1,aes(id,features.plot,fill = avg.exp.scaled,size =pct.exp))+
   theme(axis.text.x = element_text(size = 15,angle = 90,hjust = 1,vjust = 0.5))+
   theme(axis.text.y = element_text(face = "italic",size = 15,color =df_ord_lig$colo))+
   theme(plot.margin = margin(5,5,5,5))
-
-pdf("output/sgNTC/0017_tfh_DRG_related_ligand_receptor_display.pdf", w=6, h=20)
-print(p3)
-dev.off()
 }
 }
-save(gene_name,
-	 gene_name1,
-	 CellChatDB_df,
-	 LCMV_DRG_receptor,
-	 p_dot_lig,
-	 dat_lig1,
+qsavem(dat_lig1,
 	 df_ord_lig,
-       file = "object/sgNTC/0017_tfh_DRG_related_ligand_receptor.Rdata")
-
-load(file = "object/sgNTC/0017_tfh_DRG_related_ligand_receptor.Rdata")
+	  file="object/sgNTC/0017_tfh_DRG_related_ligand_receptor.qs")
+load(file = "J:\\00.keti\\000_FGT\\000_scRNAseq\\20240923_LCMV_sgNTC_vs_sgVps29/object/sgNTC/0017_tfh_DRG_related_ligand_receptor.Rdata")
 ```
 
 #ligand-receptor analysis小图展示图
