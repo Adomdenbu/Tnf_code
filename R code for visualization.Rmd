@@ -57,7 +57,7 @@ p <- ggplot(data, aes(x = id_all, y = features.plot)) +
 						  limits = c(NA,max_num), 
 						  values = scales::rescale(c(0, max_num)), 
 						  breaks = c(0,max_num),  
-						  labels = c("0", "max"),  # 自定义标签为"0"和"max"
+						  labels = c("0", "max"), 
 						  guide = guide_colorbar(title = "Max exp."),
 						  oob = scales::squish) +
 	scale_size_continuous(range = c(1, 6),
@@ -72,7 +72,6 @@ p <- ggplot(data, aes(x = id_all, y = features.plot)) +
                                    color = "black"), 
 		  axis.text.y = element_blank(), 
 		  axis.ticks.y = element_blank(),
-        #axis.text.y = element_text(size = size, face = 1,color = "black"),
   	  panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8),
         legend.text = element_text(size = size, face = 1), 
         legend.title = element_text(size = size, face = 1),
@@ -93,7 +92,6 @@ qload("object/sgNTC/0015_tfh_c2_vs_other_GOterm_top20_gsea.qs")
 if(T){
 p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
   geom_bar(stat = "identity", width = 0.7, colour = "black")+
-  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
   theme_classic()+
   theme(axis.text.y = element_text(colour = 'black', size = 8),
         axis.ticks.y = element_blank(),
@@ -102,14 +100,14 @@ p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_g
         axis.text.x = element_text(colour = 'black', size = 8),
         axis.ticks.x = element_line(colour = 'black'),
         axis.title.x = element_text(colour = 'black', size = 8),
-  	  plot.title = element_text( size = 8,          # 新增：设置主标题字体大小为8
-  	  						   hjust = 0.5, margin = margin(b = 8)),  # 左对齐并增加下边距
-  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
-  	   legend.title = element_text(size = 8),  # 新增：图例标题字体大小
+  	  plot.title = element_text( size = 8, 
+  	  						   hjust = 0.5, margin = margin(b = 8)),  
+  	  plot.title.position = "plot",  
+  	   legend.title = element_text(size = 8),  
         legend.position = "none")+ 
   scale_x_continuous(expand = c(0,0))+
   scale_fill_manual(values = c("#65B0C6","white"))+
-  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+ 
   labs(title = "GO terms enriched in C2 vs other Tfh",
        y=c(""),
   	 x=paste0("-Log10(p value)"))
@@ -124,16 +122,16 @@ range(DEG_select$avg_log2FC);range(DEG_select$RNA.c2);
 mycol <- c("#d8d8d8","black")
 if(T){
 p <- ggplot(DEG_select, aes(x = RNA.c2, y = avg_log2FC, color = filter_display)) +
-  geom_point(size = 1.2) +  # 黑色散点
-	scale_color_manual(values = mycol) +  # 应用颜色方案
+  geom_point(size = 1.2) + 
+	scale_color_manual(values = mycol) +  
   labs(title = "Expression pattern of neuron related genes",
     x = "Average expression in C2",
     y = expression(Log[2]~"(C2 vs. Other) Tfh")) +
-  scale_x_continuous(limits = c(0, 35), breaks = seq(0, 35, 5)) +  # 横轴刻度
-  scale_y_continuous(limits = c(0, 4.5), breaks = seq(0, 4.5, 1)) + # 纵轴刻度
+  scale_x_continuous(limits = c(0, 35), breaks = seq(0, 35, 5)) +  
+  scale_y_continuous(limits = c(0, 4.5), breaks = seq(0, 4.5, 1)) + 
   theme_bw() +
-	geom_vline(xintercept = 1, color = "#99919c", linetype = "solid") +  # 新x轴参考线
-	geom_hline(yintercept = 0.5, color = "#99919c", linetype = "solid")+    # 新y轴参考线
+	geom_vline(xintercept = 1, color = "#99919c", linetype = "solid") + 
+	geom_hline(yintercept = 0.5, color = "#99919c", linetype = "solid")+  
   theme(
   	axis.line = element_line(linewidth = 0.3),
     panel.grid.major = element_blank(),
@@ -141,18 +139,18 @@ p <- ggplot(DEG_select, aes(x = RNA.c2, y = avg_log2FC, color = filter_display))
     panel.border = element_rect(color = "black", linewidth = 0.3),
     plot.title = element_text(hjust = 0.5, size = 8),
     axis.title = element_text(size = 8),
-    axis.text = element_text(color = "black", size = 8),  # 所有坐标轴文本统一设置
+    axis.text = element_text(color = "black", size = 8), 
     legend.position = "none"
-  )+    #最后添加标签，浮于上方
-	 geom_text_repel(  # 智能标签防重叠
+  )+   
+	 geom_text_repel(  
     aes(label = display_gene),
     size = 3,
-    box.padding = 0.4,  # 标签与点的间距
+    box.padding = 0.4, 
     segment.color = "black",
-    segment.size = 0.2,             # 新增：设置连接线粗细（默认值为0.5，可进一步调小）
+    segment.size = 0.2,   
     max.overlaps = 300,
-    fontface = "italic" ) + # 斜体标签
-  coord_flip()  # 坐标轴翻转
+    fontface = "italic" ) + 
+  coord_flip() 
 }
 ```
 
@@ -164,7 +162,6 @@ qload("object/sgNTC/0015_tfh_c1_vs_other_GOterm_top20_gsea.qs")
 if(T){
 p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
   geom_bar(stat = "identity", width = 0.7, colour = "black")+
-  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
   theme_classic()+
   theme(axis.text.y = element_text(colour = 'black', size = 14),
         axis.ticks.y = element_blank(),
@@ -173,19 +170,18 @@ p=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_g
         axis.text.x = element_text(colour = 'black', size = 14),
         axis.ticks.x = element_line(colour = 'black'),
         axis.title.x = element_text(colour = 'black', size = 14),
-  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)),  # 左对齐并增加下边距
-  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
+  	  plot.title = element_text(hjust = 0, margin = margin(b = 15)), 
+  	  plot.title.position = "plot",  
         legend.position = "none")+ 
   scale_x_continuous(expand = c(0,0))+
   scale_fill_manual(values = c("#65B0C6","white"))+
-  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+  
   labs(title = "GO terms enriched in C1 vs other Tfh",
        y=c(""),
   	 x=c("-log10(p-value)"))
 
 p1=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_group))+
   geom_bar(stat = "identity", width = 0.7, colour = "black")+
-  #geom_text(aes(x=0.1,y=Description,label = Description),size=3.8, hjust =0)+
   theme_classic()+
   theme(axis.text.y = element_text(colour = 'black', size = 8),
         axis.ticks.y = element_blank(),
@@ -194,14 +190,14 @@ p1=ggplot(gsea_results_df, aes(x = -log10(pvalue), y = Description, fill = path_
         axis.text.x = element_text(colour = 'black', size = 8),
         axis.ticks.x = element_line(colour = 'black'),
         axis.title.x = element_text(colour = 'black', size = 8),
-  	  plot.title = element_text( size = 8,          # 新增：设置主标题字体大小为8
-  	  						   hjust = 0.5, margin = margin(b = 8)),  # 左对齐并增加下边距
-  	  plot.title.position = "plot",  # 标题对齐整个绘图区域
-  	   legend.title = element_text(size = 8),  # 新增：图例标题字体大小
+  	  plot.title = element_text( size = 8, 
+  	  						   hjust = 0.5, margin = margin(b = 8)), 
+  	  plot.title.position = "plot", 
+  	   legend.title = element_text(size = 8), 
         legend.position = "none")+ 
   scale_x_continuous(expand = c(0,0))+
   scale_fill_manual(values = c("#65B0C6","white"))+
-  scale_y_discrete(expand = c(0.05,0),limits = rev)+   # 反转分类顺序，使条形从上到下排列
+  scale_y_discrete(expand = c(0.05,0),limits = rev)+ 
   labs(title = "GO terms enriched in C1 vs other Tfh",
        y=c(""),
   	 x=paste0("-Log10(p value)"))
@@ -216,16 +212,16 @@ range(DEG_select$avg_log2FC);range(DEG_select$RNA.c1);
 mycol <- c("#d8d8d8","black")
 if(T){
 p2 <- ggplot(DEG_select, aes(x = RNA.c1, y = avg_log2FC, color = filter_display)) +
-  geom_point(size = 1.2) +  # 黑色散点
-	scale_color_manual(values = mycol) +  # 应用颜色方案
+  geom_point(size = 1.2) + 
+	scale_color_manual(values = mycol) + 
   labs(title = "Expression pattern of neuron related genes",
     x = "Average expression in C1",
     y = expression(Log[2]~"(C1 vs. Other) Tfh")) +
-  scale_x_continuous(limits = c(0, 20), breaks = seq(0, 20, 5)) +  # 横轴刻度
-  scale_y_continuous(limits = c(0, 2), breaks = seq(0, 2, 0.5)) + # 纵轴刻度
+  scale_x_continuous(limits = c(0, 20), breaks = seq(0, 20, 5)) + 
+  scale_y_continuous(limits = c(0, 2), breaks = seq(0, 2, 0.5)) + 
   theme_bw() +
-	geom_vline(xintercept = 1, color = "#99919c", linetype = "solid") +  # 新x轴参考线
-	geom_hline(yintercept = 0.5, color = "#99919c", linetype = "solid")+    # 新y轴参考线
+	geom_vline(xintercept = 1, color = "#99919c", linetype = "solid") + 
+	geom_hline(yintercept = 0.5, color = "#99919c", linetype = "solid")+  
   theme(
   	axis.line = element_line(linewidth = 0.3),
     panel.grid.major = element_blank(),
@@ -233,18 +229,18 @@ p2 <- ggplot(DEG_select, aes(x = RNA.c1, y = avg_log2FC, color = filter_display)
     panel.border = element_rect(color = "black", linewidth = 0.3),
     plot.title = element_text(hjust = 0.5, size = 8),
     axis.title = element_text(size = 8),
-    axis.text = element_text(color = "black", size = 8),  # 所有坐标轴文本统一设置
+    axis.text = element_text(color = "black", size = 8), 
     legend.position = "none"
-  )+    #最后添加标签，浮于上方
-	 geom_text_repel(  # 智能标签防重叠
+  )+  
+	 geom_text_repel(
     aes(label = display_gene),
     size = 3,
-    box.padding = 0.2,  # 标签与点的间距
+    box.padding = 0.2, 
     segment.color = "black",
-    segment.size = 0.2,             # 新增：设置连接线粗细（默认值为0.5，可进一步调小）
+    segment.size = 0.2,
     max.overlaps = 20,
-    fontface = "italic" ) + # 斜体标签
-  coord_flip()  # 坐标轴翻转
+    fontface = "italic" ) + 
+  coord_flip() 
 }
 ```
 
@@ -436,7 +432,6 @@ ggplot(.,aes(x=assign_cluster,y= !!sym(i)))+
     trim = TRUE,
     scale = "width"
   ) +
-	# 箱线图（覆盖在小提琴图上）
 	geom_boxplot(data = merged_df %>% dplyr::filter(!!sym(i) > 0),
   	aes(fill = assign_cluster),
   	 fill = NA,
@@ -475,7 +470,6 @@ qload("object/sgNTC/0019_tfh_group_ratio_pie_chart.qs")
 
 if(T){
 color=c("#ec5e6c","#6694cf","#cb7eb6","#f39139","#91c678","#f0e444")
-# 圆环图
 pl=ggplot(matrix_result,aes(x = 1, y = Count, fill = names))+
   geom_bar(width = 0.3,stat = 'identity')+
   coord_polar(theta = 'y')+
@@ -489,9 +483,9 @@ pl=ggplot(matrix_result,aes(x = 1, y = Count, fill = names))+
         axis.text = element_blank(),
         axis.ticks = element_blank(),
         plot.title = element_text(hjust = 0.5, color = "#666666"),
-  	  legend.key.size = unit(0.75, "cm"),   # 图例图标大小（原默认0.8cm）
+  	  legend.key.size = unit(0.75, "cm"),
     legend.text = element_text(size=14),
-      plot.margin = unit(rep(0,4), "cm"))+  # 图例文字字号（原默认11）
+      plot.margin = unit(rep(0,4), "cm"))+
   xlim(0.5, 1.5)
 
 }
